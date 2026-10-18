@@ -23,7 +23,9 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: "false"
       - name: SDK platform and tools
         run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
       - name: Gradle 9.4.1
