@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "ir.saadegi.android"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "ir.saadegi.android"
