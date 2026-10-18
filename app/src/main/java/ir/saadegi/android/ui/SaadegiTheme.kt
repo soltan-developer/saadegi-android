@@ -2,12 +2,10 @@ package ir.saadegi.android.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 
 /**
  * Source of truth: saadegi-site's warm ivory and terracotta brand.
@@ -62,7 +60,6 @@ fun SaadegiTheme(content: @Composable () -> Unit) {
     }
     MaterialTheme(
         colorScheme = palette,
-        typography = Typography(defaultFontFamily = FontFamily.SansSerif),
         content = content,
     )
 }
