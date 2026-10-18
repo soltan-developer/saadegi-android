@@ -7,7 +7,7 @@
 ## تصمیم‌ها (ADR-001)
 
 1. Android native با Kotlin + Jetpack Compose، معماری Unidirectional Data Flow / MVVM.
-2. موتور نخست Xray-core تحت MPL-2.0؛ استفاده با **Go/Android binding اختصاصی** پس از اثبات امکان ساخت و بازبینی مجوز تمام transitive dependencies.
+2. موتور نخست Xray-core تحت MPL-2.0؛ ترجیح اولیه wrapper رسمی **XTLS/libXray** تحت MIT و AAR اندرویدی آن است. Adapter سادگی مستقلاً نوشته می‌شود. اگر libXray در POC ناسازگار بود، Go/Android bridge اختصاصی (بدون کپی از کلاینت GPL) گزینه دوم است؛ ساخت و تمام transitive dependencies باید ممیزی شوند.
 3. تونل سیستم Android VpnService و لایه tun2socks مبتنی بر HevSocks5Tunnel (MIT) **پس از** POC عملکرد و بررسی وابستگی‌ها. مسیر مفهومی: Android TUN <-> tun2socks <-> SOCKS5 localhost <-> Xray outbound <-> server. یک هسته و یک VpnService فعال؛ بدون اجرای هم‌زمان موتورهای چندگانه.
 4. از v2rayNG، PattNG، NekoBox، SFA و پروژه‌های GPL فقط برای بررسی رفتار و تست سازگاری استفاده شود؛ بدون کپی کد، asset یا کتابخانه GPL به بسته اختصاصی. کتابخانه AndroidLibXrayLite دارای LGPL-3.0 است و نباید بدون بررسی حقوقی/فنی وارد باینری شود.
 5. لایه مستقل `VpnEngine` با API: `capabilities()`, `prepare(config)`, `connect()`, `disconnect()`, `observeState()`, `observeMetrics()`؛ Xray adapter نخست، جایگاه موتور جایگزین صرفاً interface و بدون کد GPL.
@@ -23,7 +23,7 @@ core/auth             (OTP, mobile session, refresh rotation)
 core/storage          (encrypted local profiles, preferences)
 core/observability    (redacted, opt-in, aggregate)
 vpn/api               (engine-neutral contract)
-vpn/xray              (custom bridge; MPL compliance)
+vpn/xray              (libXray adapter / custom bridge fallback; MPL+MIT compliance)
 vpn/tunnel            (VpnService, TUN/tun2socks, protect, DNS)
 vpn/orchestrator      (connection state, scoring, failover)
 vpn/diagnostics       (privacy-preserving checks)
@@ -90,7 +90,7 @@ State machine: `IDLE → PREPARING → CONNECTING → VERIFYING → CONNECTED �
 
 ## ریسک‌های تعیین‌کننده پیش از توسعه کامل
 
-R1: اثبات ساخت Xray Go bridge برای Android و integration معتبر TUN/UDP/DNS.  
+R1: اثبات ساخت/استفاده از libXray Android AAR با نسخه pin‌شده، یک Go runtime در هر process و integration معتبر TUN/UDP/DNS.  
 R2: ممیزی dependency tree و الزامات MPL/MIT/LGPL/GPL توسط مسئول حقوقی.  
 R3: آزمون واقعی VLESS/Reality/XHTTP با پنل فعلی و ناسازگاری‌های Transport.  
 R4: نرخ تغییر شبکه و محدودیت‌های background/foreground در Android 16+.  
