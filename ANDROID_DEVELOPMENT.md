@@ -6,7 +6,7 @@ This branch includes an Android Compose shell, themed Persian RTL screens, a dis
 
 ## Build (requires an Android development environment)
 
-- JDK 17, Android SDK API 37 and build tools 36.0.0.
+- JDK 17, Android SDK API 36 and build tools 36.0.0.
 - Gradle 9.4.1; AGP 9.2.0 (built-in Kotlin), Compose compiler plugin 2.2.10, Compose BOM 2026.09.00.
 - Run \`gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug\`.
 - Gradle wrapper is not included yet: the build environment here does not have Gradle/Android SDK and cannot download them. A trusted local machine can run \`gradle wrapper --gradle-version 9.4.1\` and commit *both* generated gradlew scripts and the wrapper jar to follow normal repo practices.
