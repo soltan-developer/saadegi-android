@@ -5,7 +5,7 @@
 ## Gate 0: حقوقی + POC ریسک اتصال (اولویت مطلق)
 
 - ممیزی مجوز Xray-core (MPL-2.0)، HevSocks5Tunnel (MIT)، Go bridge و کل dependency tree؛ ثبت SBOM و notice.
-- ساخت AAR/so آزمایشی از Xray-core با کد bridge نوشته‌شده مستقل، نه کپی AndroidLibXrayLite یا v2rayNG.
+- ساخت/استفاده از AAR رسمی libXray (MIT) برای Xray-core (MPL-2.0) با نسخه و hash pin‌شده؛ Adapter اندروید اختصاصی. در صورت عدم سازگاری، bridge خودنوشته مستقل، نه کپی AndroidLibXrayLite یا v2rayNG.
 - ساخت ساده VpnService + local SOCKS + TUN/tun2socks؛ اثبات forwarding TCP، UDP، DNS، IPv4 و IPv6.
 - آزمایش حداقل VLESS+REALITY و transportهای واقعاً مورد استفاده در 3x-ui؛ XHTTP فقط وقتی در نسخه انتخابی Xray و سرور موجود پشتیبانی تاییدشد.
 - تست روی 2 برند گوشی و 2 شبکه واقعی؛ چرخه قطع/وصل، sleep، تغییر شبکه؛ مستندسازی throughput, RTT, battery, crash.
