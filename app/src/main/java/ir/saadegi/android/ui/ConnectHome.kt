@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.sp
  * One screen, one job: future VPN connect. Clearly labeled UI-only preview.
  * No invented ping, available node, consumed traffic, or connection status.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectHome() {
     var selectedCountry by rememberSaveable { mutableStateOf("هوشمند") }
