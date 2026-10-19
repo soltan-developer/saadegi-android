@@ -42,6 +42,8 @@ import ir.saadegi.android.diagnostics.XrayNativeDiagnostics
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -60,6 +62,7 @@ fun DiagnosticsPanel(
     val engine = remember(repository) { XrayNativeDiagnostics(repository) }
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
+    var runningJob by remember { mutableStateOf<Job?>(null) }
     var showModePicker by remember { mutableStateOf(false) }
     var endpoint by remember { mutableStateOf(ProbeEndpoint.GOOGLE) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -82,7 +85,7 @@ fun DiagnosticsPanel(
         measuredAt.clear()
         speed = null
         speedNodeId = null
-        scope.launch {
+        runningJob = scope.launch {
             try {
                 engine.measure(targetNodes.map { it.id }, mode, endpoint) { result ->
                     withContext(Dispatchers.Main) {
@@ -91,8 +94,10 @@ fun DiagnosticsPanel(
                         completed++
                     }
                 }
+            } catch (_: CancellationException) {
+                error = "آزمون متوقف شد."
             } catch (_: Exception) {
-                error = "آزمون از طریق موتور Xray انجام نشد. دسترسی اینترنت و سازگاری کانفیگ‌ها را بررسی کنید."
+                error = "آزمون از طریق موتور Xray انجام نشد. گزارش عیب‌یابی را بررسی کنید."
             } finally { running = false }
         }
     }
@@ -106,7 +111,7 @@ fun DiagnosticsPanel(
         error = null
         speed = null
         speedNodeId = null
-        scope.launch {
+        runningJob = scope.launch {
             try {
                 // A fresh real proxied HTTP check is mandatory before every
                 // 5 MiB transfer; an earlier result can become stale on handoff.
@@ -118,8 +123,10 @@ fun DiagnosticsPanel(
                     speed = engine.testFiveMiB(node)
                     speedNodeId = node
                 }
+            } catch (_: CancellationException) {
+                error = "تست سرعت متوقف شد."
             } catch (_: Exception) {
-                error = "دانلود از مسیر کانفیگ انتخاب‌شده ناموفق بود. سرور یا مسیر فایل آزمون را بررسی کنید."
+                error = "دانلود از مسیر کانفیگ انتخاب‌شده ناموفق بود. گزارش عیب‌یابی را بررسی کنید."
             } finally { running = false }
         }
     }
@@ -145,7 +152,9 @@ fun DiagnosticsPanel(
             if (running) Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("در حال آزمون… " + completed + " از " + targetNodes.size, fontSize = 12.sp)
+                Text("در حال آزمون… " + completed + " از " + targetNodes.size,
+                    modifier = Modifier.weight(1f), fontSize = 12.sp)
+                TextButton(onClick = { runningJob?.cancel() }) { Text("توقف", fontSize = 12.sp) }
             }
             if (vpnActive) Text("برای آزمایش سایر کانفیگ‌ها ابتدا اتصال آزمایشی را قطع کنید.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp)
