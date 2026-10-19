@@ -27,3 +27,7 @@ secrets.properties
 
 # Bundled release-pinned native library is fetched and checksum-validated by build script
 app/libs/
+
+# Fetched with pinned hashes in scripts/prepare-vazirmatn.sh
+app/src/main/res/font/vazirmatn.ttf
+app/src/main/assets/vazirmatn-OFL.txt
