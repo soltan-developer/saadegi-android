@@ -15,6 +15,7 @@ import ir.saadegi.android.subscription.SubscriptionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -55,7 +56,7 @@ class SaadegiVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (connectionJob?.isActive == true) return START_NOT_STICKY
+        if (connectionJob?.isActive == true || native != null) return START_NOT_STICKY
         try {
             startOngoingNotification()
         } catch (_: Exception) {
@@ -104,6 +105,11 @@ class SaadegiVpnService : VpnService() {
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.VERIFYING, profileId, "بررسی عبور واقعی ترافیک"))
             if (!verifyRoutedHttps()) throw IllegalStateException("VPN_TRAFFIC_VERIFICATION_FAILED")
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.CONNECTED, profileId, "ترافیک VPN تأیید شد"))
+        } catch (_: CancellationException) {
+            native?.stop()
+            native = null
+            VpnLiveStatus.set(TunnelStatus(TunnelPhase.IDLE))
+            stopSelf()
         } catch (_: Exception) {
             native?.stop()
             native = null
