@@ -69,22 +69,28 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
     private fun outboundConfig(outbound: JSONObject): String =
         JSONObject().put("outbounds", JSONArray().put(outbound)).toString()
 
-    private fun sample(config: String): Long? {
-        val entry = JSONObject().put("xrayJson", config)
-        val pingRequest = JSONObject()
-            .put("configs", JSONArray().put(entry))
+    /**
+     * libXray allows up to 5 profile configs concurrently in pingBatch. Each result
+     * reflects an HTTP HEAD request through the associated Xray outbound.
+     */
+    private fun sampleBatch(configs: List<String>): List<Long?> {
+        if (configs.isEmpty()) return emptyList()
+        require(configs.size <= 5)
+        val entries = JSONArray()
+        configs.forEach { entries.put(JSONObject().put("xrayJson", it)) }
+        val response = invoke("pingBatch", JSONObject()
+            .put("configs", entries)
             .put("timeout", 5)
-            .put("url", LATENCY_URL)
-        val result = invoke("pingBatch", pingRequest)
-            .optJSONObject("data")?.optJSONArray("results")?.optJSONObject(0) ?: return null
-        if (!result.optBoolean("success")) return null
-        return result.optLong("delay", -1L).takeIf { it in 1..9_999 }
+            .put("url", LATENCY_URL))
+        val results = response.optJSONObject("data")?.optJSONArray("results")
+        return configs.indices.map { index ->
+            val item = results?.optJSONObject(index)
+            if (item?.optBoolean("success") == true)
+                item.optLong("delay", -1L).takeIf { it in 1..9_999 }
+            else null
+        }
     }
 
-    /**
-     * The user chooses one or three genuine requests per selected profile.
-     * onProgress reports only completed samples; no fake/default milliseconds.
-     */
     suspend fun measure(
         profileIds: List<String>,
         mode: ProbeMode,
@@ -95,20 +101,30 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
         nativeLock.lock()
         try {
             assertCoreNotRunning()
-            val results = mutableListOf<QualityResult>()
-            for (id in profileIds) {
-                val samples = mutableListOf<Long?>()
-                val config = try { outboundConfig(outbound(id)) } catch (_: Exception) { null }
-                repeat(mode.samples) { index ->
-                    if (index > 0) delay(350)
-                    val measured = if (config == null) null else try { sample(config) } catch (_: Exception) { null }
-                    samples += measured
+            val allResults = mutableListOf<QualityResult>()
+            for (group in profileIds.chunked(5)) {
+                val configs: List<String?> = group.map { id ->
+                    try { outboundConfig(outbound(id)) } catch (_: Exception) { null }
                 }
-                val result = QualityScoring.aggregate(id, samples)
-                results += result
-                onProgress(result)
+                val samples: List<MutableList<Long?>> = group.map { mutableListOf<Long?>() }
+                repeat(mode.samples) { iteration ->
+                    if (iteration > 0) delay(350)
+                    val validIndices = configs.indices.filter { configs[it] != null }
+                    val observed = try {
+                        sampleBatch(validIndices.map { configs[it]!! })
+                    } catch (_: Exception) { List(validIndices.size) { null } }
+                    for (index in configs.indices) {
+                        val measuredIndex = validIndices.indexOf(index)
+                        samples[index] += if (measuredIndex < 0) null else observed[measuredIndex]
+                    }
+                }
+                group.forEachIndexed { index, id ->
+                    val result = QualityScoring.aggregate(id, samples[index])
+                    allResults += result
+                    onProgress(result)
+                }
             }
-            QualityScoring.rank(results)
+            QualityScoring.rank(allResults)
         } finally { nativeLock.unlock() }
     }
 
