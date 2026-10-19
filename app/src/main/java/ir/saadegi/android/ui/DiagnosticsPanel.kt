@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +46,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /** All displayed latency/speed results originate from a real Xray-proxied request. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiagnosticsPanel(
     repository: SubscriptionRepository,
@@ -53,6 +57,7 @@ fun DiagnosticsPanel(
     val engine = remember(repository) { XrayNativeDiagnostics(repository) }
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
+    var showModePicker by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var completed by remember { mutableIntStateOf(0) }
     var lastMode by remember { mutableStateOf<ProbeMode?>(null) }
@@ -119,19 +124,14 @@ fun DiagnosticsPanel(
         Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("سنجش واقعی کیفیت اتصال", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
-                "تأخیر از درخواست واقعی HTTP داخل Xray به دست می‌آید، نه پینگ مستقیم گوشی.",
+                "تأخیر HTTP واقعی از داخل Xray؛ قابل مقایسه در URL یکسان.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(modifier = Modifier.weight(1f), enabled = !running && targetNodes.isNotEmpty(),
-                    onClick = { runLatency(ProbeMode.ONE_STEP) }) {
-                    Text("یک‌مرحله‌ای", fontSize = 12.sp, maxLines = 1)
-                }
-                OutlinedButton(modifier = Modifier.weight(1f), enabled = !running && targetNodes.isNotEmpty(),
-                    onClick = { runLatency(ProbeMode.THREE_STEP) }) {
-                    Text("سه‌مرحله‌ای", fontSize = 12.sp, maxLines = 1)
-                }
-            }
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !running && targetNodes.isNotEmpty(),
+                onClick = { showModePicker = true },
+            ) { Text("تست تأخیر سرورها  ▾", fontSize = 14.sp) }
             Text(
                 "سه‌مرحله‌ای: سه درخواست برای بررسی موفقیت، میانه تأخیر و نوسان؛ برای یافتن سرور پایدارتر مناسب‌تر است.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
@@ -202,6 +202,28 @@ fun DiagnosticsPanel(
                 )
             }
             error?.let { Text(it, color = colors.error, fontSize = 12.sp) }
+        }
+    }
+
+    if (showModePicker) ModalBottomSheet(
+        onDismissRequest = { showModePicker = false },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("انتخاب روش سنجش", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("هر تست، درخواست HTTP واقعی با URL پیش‌فرض v2rayNG ارسال می‌کند.",
+                color = colors.onSurfaceVariant, fontSize = 12.sp)
+            Button(Modifier.fillMaxWidth(), onClick = {
+                showModePicker = false
+                runLatency(ProbeMode.ONE_STEP)
+            }) { Text("سنجش سریع · یک‌مرحله‌ای") }
+            OutlinedButton(Modifier.fillMaxWidth(), onClick = {
+                showModePicker = false
+                runLatency(ProbeMode.THREE_STEP)
+            }) { Text("سنجش پایداری · سه‌مرحله‌ای") }
+            Text("برای مقایسه منصفانه با v2rayNG هر دو اپ را روی یک اینترنت و URL یکسان بسنجید.",
+                color = colors.onSurfaceVariant, fontSize = 11.sp)
         }
     }
 
