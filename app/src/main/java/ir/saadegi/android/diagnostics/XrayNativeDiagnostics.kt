@@ -1,6 +1,7 @@
 package ir.saadegi.android.diagnostics
 
 import ir.saadegi.android.subscription.SubscriptionRepository
+import ir.saadegi.android.vpn.VpnDiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -22,10 +23,14 @@ import kotlinx.coroutines.ensureActive
  * Tests run only while VPN/TUN is inactive. libXray managed methods are process-global and
  * pingBatch cannot overlap an active runXray; serialize speed, ping and connection lifecycle.
  */
+enum class ProbeEndpoint(val url: String, val label: String) {
+    GOOGLE("https://www.gstatic.com/generate_204", "Google 204"),
+    CLOUDFLARE("https://cp.cloudflare.com/", "Cloudflare 204"),
+}
+
 class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
     companion object {
         private val nativeLock = Mutex()
-        private const val LATENCY_URL = "https://www.gstatic.com/generate_204"
         private const val DOWNLOAD_URL = "https://speed.cloudflare.com/__down?bytes=5242880"
         private const val EXPECTED_BYTES = SpeedTestPolicy.EXPECTED_DOWNLOAD_BYTES
         const val MAX_NODES_PER_RUN = 20
@@ -76,7 +81,7 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
      * libXray allows up to 5 profile configs concurrently in pingBatch. Each result
      * reflects an HTTP HEAD request through the associated Xray outbound.
      */
-    private fun sampleBatch(configs: List<String>): List<Long?> {
+    private fun sampleBatch(configs: List<String>, endpoint: ProbeEndpoint): List<Long?> {
         if (configs.isEmpty()) return emptyList()
         require(configs.size <= 5)
         val entries = JSONArray()
@@ -84,7 +89,7 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
         val response = invoke("pingBatch", JSONObject()
             .put("configs", entries)
             .put("timeout", 5)
-            .put("url", LATENCY_URL))
+            .put("url", endpoint.url))
         val results = response.optJSONObject("data")?.optJSONArray("results")
         return configs.indices.map { index ->
             val item = results?.optJSONObject(index)
@@ -97,31 +102,36 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
     suspend fun measure(
         profileIds: List<String>,
         mode: ProbeMode,
+        endpoint: ProbeEndpoint = ProbeEndpoint.GOOGLE,
         onProgress: suspend (QualityResult) -> Unit,
     ): List<QualityResult> = withContext(Dispatchers.IO) {
         require(profileIds.isNotEmpty() && profileIds.size <= MAX_NODES_PER_RUN) { "INVALID_TEST_SELECTION" }
         require(profileIds.distinct().size == profileIds.size) { "DUPLICATE_TEST_SELECTION" }
         nativeLock.lock()
         try {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TEST_START)
             assertCoreNotRunning()
             val allResults = mutableListOf<QualityResult>()
             for (group in profileIds.chunked(5)) {
+                currentCoroutineContext().ensureActive()
                 val configs: List<String?> = group.map { id ->
                     try { outboundConfig(outbound(id)) } catch (_: Exception) { null }
                 }
                 val samples: List<MutableList<Long?>> = group.map { mutableListOf<Long?>() }
-                // Warm-up is explicitly excluded from reported samples. It primes resolver/transport
-                // caches without claiming the first cold handshake is steady-state latency.
-                // It does not guarantee parity with v2rayNG on different phones/networks.
+                // pingBatch starts a NEW Xray core every call, so a previous
+                // batch cannot warm the next connection. Avoid a fake warm-up.
                 val validIndices = configs.indices.filter { configs[it] != null }
-                if (validIndices.isNotEmpty()) {
-                    try { sampleBatch(validIndices.map { configs[it]!! }) } catch (_: Exception) { }
-                }
                 repeat(mode.samples) { iteration ->
+                    currentCoroutineContext().ensureActive()
                     if (iteration > 0) delay(350)
                     val observed = try {
-                        sampleBatch(validIndices.map { configs[it]!! })
-                    } catch (_: Exception) { List(validIndices.size) { null } }
+                        sampleBatch(validIndices.map { configs[it]!! }, endpoint)
+                    } catch (_: Exception) {
+                        currentCoroutineContext().ensureActive()
+                        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TEST_ERROR)
+                        List(validIndices.size) { null }
+                    }
+                    currentCoroutineContext().ensureActive()
                     for (index in configs.indices) {
                         val measuredIndex = validIndices.indexOf(index)
                         samples[index] += if (measuredIndex < 0) null else observed[measuredIndex]
@@ -133,6 +143,9 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
                     onProgress(result)
                 }
             }
+            if (allResults.none { it.successes > 0 })
+                VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TEST_NO_SUCCESS)
+            else VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TEST_COMPLETE)
             QualityScoring.rank(allResults)
         } finally { nativeLock.unlock() }
     }

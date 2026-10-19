@@ -34,6 +34,8 @@ jobs:
           gradle-version: "9.4.1"
       - name: Pin and stage libXray Android native binary
         run: bash scripts/prepare-libxray.sh
+      - name: Pin and prepare Vazirmatn Persian font
+        run: bash scripts/prepare-vazirmatn.sh
       - name: Unit tests and debug assemble
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - name: Inspect APK size and packaged native ABIs

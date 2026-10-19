@@ -40,3 +40,9 @@ Android SDK and Gradle were not installed in the build environment, and outbound
 ## ABI sizing policy
 
 The debug preview targets **arm64-v8a only**; shipping all four upstream libXray architectures in one APK was wasteful. CI asserts only one native ABI and logs exact APK bytes. Older 32-bit-only devices need a separately signed build later. The final Play release should normally use Android App Bundles for per-device delivery. APK build PASS does not prove that an Android tunnel can pass traffic.
+
+## Font, size and license notes
+
+Run `bash scripts/prepare-vazirmatn.sh` before local Gradle builds. It downloads the 241 KB Vazirmatn variable TTF (SIL OFL 1.1) and embeds its full license; binary/font files are never checked into Git. CI verifies pinned Git blob hashes.
+
+The internal debug APK uses a single arm64-v8a native ABI, R8 minification/resource shrinking, and *compressed native libraries* (`useLegacyPackaging = true`) for smaller download size. Native `.so` extraction may increase the **installed** on-device footprint. CI prints both exact APK bytes and ABI; the Go Xray core remains the largest component. Do not remove native functionality to achieve an arbitrary size goal.
