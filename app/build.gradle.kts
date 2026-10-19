@@ -26,7 +26,8 @@ android {
         }
         debug {
             // The debug build exercises native connection in a guarded lab mode.
-            applicationIdSuffix = ".debug"
+            // Separate internal native-VPN test package: keep the existing preview untouched.
+            applicationIdSuffix = ".lab"
             versionNameSuffix = "-debug"
         }
     }
