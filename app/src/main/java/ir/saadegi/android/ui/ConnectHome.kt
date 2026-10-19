@@ -31,6 +31,7 @@ import ir.saadegi.android.diagnostics.QualityResult
 import ir.saadegi.android.vpn.SaadegiVpnService
 import ir.saadegi.android.vpn.TunnelPhase
 import ir.saadegi.android.vpn.VpnLiveStatus
+import ir.saadegi.android.vpn.VpnDiagnosticLog
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
 import ir.saadegi.android.subscription.SubscriptionSnapshot
@@ -64,24 +65,34 @@ fun ConnectHome() {
     val connection by VpnLiveStatus.state.collectAsState()
     val internalTrial = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     var showTrialConsent by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
     val approval = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && nodeId != null) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.GRANTED)
             val service = Intent(context, SaadegiVpnService::class.java).apply {
                 action = SaadegiVpnService.ACTION_CONNECT
                 putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
             }
-            context.startForegroundService(service)
-        }
+            try { context.startForegroundService(service) }
+            catch (_: Exception) { VpnDiagnosticLog.add(VpnDiagnosticLog.Step.FOREGROUND_FAILED) }
+        } else { VpnDiagnosticLog.add(VpnDiagnosticLog.Step.DENIED) }
     }
     fun startConnection() {
         if (!internalTrial || nodeId == null) return
-        val request = VpnService.prepare(context)
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.REQUEST)
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.CONSENT)
+        val request = try { VpnService.prepare(context) } catch (_: Exception) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.ERROR_SECURITY)
+            return
+        }
         if (request == null) {
             val service = Intent(context, SaadegiVpnService::class.java).apply {
                 action = SaadegiVpnService.ACTION_CONNECT
                 putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
             }
-            context.startForegroundService(service)
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.GRANTED)
+            try { context.startForegroundService(service) }
+            catch (_: Exception) { VpnDiagnosticLog.add(VpnDiagnosticLog.Step.FOREGROUND_FAILED) }
         } else approval.launch(request)
     }
     fun stopConnection() {
@@ -138,6 +149,16 @@ fun ConnectHome() {
         item { SubscriptionHero(nodes.size, selected, connection.phase, connection.message,
             internalTrial, onStart = { showTrialConsent = true }, onStop = { stopConnection() }) }
         item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("اتصال آزمایشی • مرحله عیب‌یابی", fontSize = 11.sp,
+                    color = palette.onSurfaceVariant)
+                TextButton(onClick = { showDiagnostics = true }) {
+                    Text("گزارش اتصال و خطاها", fontSize = 12.sp, color = palette.primary)
+                }
+            }
+        }
+        item {
             Surface(color = palette.surface, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -173,7 +194,6 @@ fun ConnectHome() {
             }
         }
         if (snapshot != null) {
-            item { SubscriptionUsageCard(snapshot!!) }
             item {
                 Surface(
                     color = palette.surface, shape = RoundedCornerShape(19.dp),
@@ -192,6 +212,7 @@ fun ConnectHome() {
                     }
                 }
             }
+            item { SubscriptionUsageCard(snapshot!!) }
             item {
                 DiagnosticsPanel(repo, visible, nodeId, nodeResults,
                     vpnActive = connection.phase == TunnelPhase.CONNECTED ||
@@ -209,13 +230,15 @@ fun ConnectHome() {
             }
             item {
                 Text(
-                    "این سرورها از اشتراک شما خوانده شده‌اند؛ هنوز امکان اتصال VPN فعال نیست. " +
+                    "این سرورها از اشتراک شما خوانده شده‌اند؛ اتصال در نسخه داخلی آزمایشی است. " +
                         "موقعیت صرفاً از نام کانفیگ استخراج می‌شود و موقعیت تأییدشده نیست.",
                     fontSize = 11.sp, lineHeight = 17.sp, color = palette.onSurfaceVariant,
                 )
             }
         }
     }
+
+    if (showDiagnostics) VpnLogSheet(onDismiss = { showDiagnostics = false })
 
     if (showTrialConsent) AlertDialog(
         onDismissRequest = { showTrialConsent = false },
