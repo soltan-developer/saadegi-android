@@ -52,6 +52,7 @@ fun DiagnosticsPanel(
     repository: SubscriptionRepository,
     visibleNodes: List<SubscriptionNode>,
     selectedNodeId: String?,
+    measurements: MutableMap<String, QualityResult>,
 ) {
     val colors = MaterialTheme.colorScheme
     val engine = remember(repository) { XrayNativeDiagnostics(repository) }
@@ -64,7 +65,7 @@ fun DiagnosticsPanel(
     var speed by remember { mutableStateOf<XrayNativeDiagnostics.SpeedResult?>(null) }
     var speedNodeId by remember { mutableStateOf<String?>(null) }
     var showSpeedWarning by remember { mutableStateOf(false) }
-    val measured = remember { mutableStateMapOf<String, QualityResult>() }
+    val measured = measurements
     val measuredAt = remember { mutableStateMapOf<String, Long>() }
     val targetNodes = visibleNodes.take(XrayNativeDiagnostics.MAX_NODES_PER_RUN)
 
@@ -146,24 +147,9 @@ fun DiagnosticsPanel(
                 Text("در حال آزمون… " + completed + " از " + targetNodes.size, fontSize = 12.sp)
             }
             if (lastMode != null && measured.isNotEmpty()) {
-                Text("نتایج واقعی (" + (if (lastMode == ProbeMode.ONE_STEP) "یک" else "سه") + " مرحله)",
-                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                QualityScoring.rank(measured.values.toList()).forEachIndexed { index, result ->
-                    val node = visibleNodes.firstOrNull { it.id == result.profileId }
-                    Column(Modifier.fillMaxWidth().background(colors.surfaceVariant, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text((index + 1).toString() + ". " + (node?.title ?: "سرور"),
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                        val description = if (result.medianLatencyMs == null) "اتصال ناموفق" else
-                            result.medianLatencyMs.toString() + " ms · موفق " +
-                                result.successes + "/" + result.attempts +
-                                (result.jitterMs?.let { " · نوسان " + it + "ms" } ?: "") +
-                                (result.stabilityScore?.let { " · امتیاز " + it } ?: "")
-                        Text(description, color = if (result.successes == 0) colors.error else colors.onSurfaceVariant,
-                            fontSize = 11.sp)
-                    }
-                }
+                val successful = measured.values.count { it.successes > 0 }
+                Text("نتیجه: " + successful + " سرور پاسخ‌گو · نمایش تأخیر در فهرست پایین",
+                    fontSize = 12.sp, color = colors.onSurfaceVariant)
             }
             val testedSelected = SpeedTestPolicy.canTest(
                 selectedNodeId, selectedNodeId?.let(measured::get),
