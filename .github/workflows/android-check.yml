@@ -36,6 +36,18 @@ jobs:
         run: bash scripts/prepare-libxray.sh
       - name: Unit tests and debug assemble
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Inspect APK size and packaged native ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          echo "APK_BYTES=$(stat -c%s "$apk")"
+          echo "APK_MIB=$(du -m "$apk" | cut -f1)"
+          echo "Native libraries in APK:"
+          unzip -Z1 "$apk" | grep "^lib/" | cut -d/ -f2 | sort -u
+          count=$(unzip -Z1 "$apk" | grep "^lib/" | cut -d/ -f2 | sort -u | wc -l)
+          test "$count" -eq 1
+          unzip -Z1 "$apk" | grep -q "^lib/arm64-v8a/"
       - name: Store non-VPN debug preview APK
         uses: actions/upload-artifact@v4
         with:
