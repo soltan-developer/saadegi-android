@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ir.saadegi.android.diagnostics.QualityResult
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
 import ir.saadegi.android.subscription.SubscriptionSnapshot
@@ -49,6 +50,7 @@ fun ConnectHome() {
     var linkVisible by remember { mutableStateOf(false) }
     var location by rememberSaveable { mutableStateOf("همه سرورها") }
     var nodeId by rememberSaveable { mutableStateOf<String?>(null) }
+    val nodeResults = remember { mutableStateMapOf<String, QualityResult>() }
     val palette = MaterialTheme.colorScheme
 
     fun runAction(action: suspend () -> SubscriptionSnapshot?) {
@@ -58,6 +60,7 @@ fun ConnectHome() {
         scope.launch {
             try {
                 snapshot = action()
+                nodeResults.clear()
                 val nodes = snapshot?.parsed?.nodes.orEmpty()
                 if (location != "همه سرورها" && nodes.none { it.location == location }) location = "همه سرورها"
                 if (nodes.none { it.id == nodeId }) nodeId = null
@@ -151,7 +154,7 @@ fun ConnectHome() {
                 }
             }
             item {
-                DiagnosticsPanel(repo, visible, nodeId)
+                DiagnosticsPanel(repo, visible, nodeId, nodeResults)
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -160,7 +163,7 @@ fun ConnectHome() {
                 }
             }
             items(visible, key = { it.id }) { node ->
-                ServerRow(node, nodeId == node.id) { nodeId = node.id }
+                ServerRow(node, nodeId == node.id, nodeResults[node.id]) { nodeId = node.id }
             }
             item {
                 Text(
@@ -297,7 +300,7 @@ private fun SubscriptionUsageCard(snapshot: SubscriptionSnapshot) {
 }
 
 @Composable
-private fun ServerRow(node: SubscriptionNode, selected: Boolean, onSelect: () -> Unit) {
+private fun ServerRow(node: SubscriptionNode, selected: Boolean, result: QualityResult?, onSelect: () -> Unit) {
     val palette = MaterialTheme.colorScheme
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
@@ -315,6 +318,17 @@ private fun ServerRow(node: SubscriptionNode, selected: Boolean, onSelect: () ->
                 Text(node.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2)
                 Text("${node.protocol} · ${node.transport} · ${node.location}",
                     color = palette.onSurfaceVariant, fontSize = 11.sp)
+                result?.let {
+                    Text(
+                        if (it.medianLatencyMs == null) "بدون پاسخ · " + it.successes + "/" + it.attempts
+                        else "HTTP " + it.medianLatencyMs + " ms · موفق " + it.successes +
+                            "/" + it.attempts +
+                            (it.jitterMs?.let { jitter -> " · نوسان " + jitter + " ms" } ?: ""),
+                        fontSize = 11.sp,
+                        color = if (it.successes == 0) palette.error else palette.primary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
             if (!node.compatibleWithCurrentEngine) {
                 Text("موتور دیگر", color = palette.error, fontSize = 10.sp)
