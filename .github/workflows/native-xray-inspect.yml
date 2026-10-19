@@ -35,5 +35,8 @@ jobs:
             unzip -p "$aar" classes.jar >/tmp/xray-classes.jar || true
             if test -s /tmp/xray-classes.jar; then
               jar tf /tmp/xray-classes.jar | grep -Ei 'libxray|dialercontroller|processfinder' | head -60 || true
+              echo 'API signatures of libXray Android bindings:'
+              javap -classpath /tmp/xray-classes.jar libXray.LibXray libXray.DialerController | head -140
+
             fi
           done
