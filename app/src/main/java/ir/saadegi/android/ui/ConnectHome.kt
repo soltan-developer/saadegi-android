@@ -287,7 +287,17 @@ fun ConnectHome() {
 }
 
 @Composable
-private fun SubscriptionHero(count: Int, selected: SubscriptionNode?) {
+private fun SubscriptionHero(
+    count: Int,
+    selected: SubscriptionNode?,
+    phase: TunnelPhase,
+    statusMessage: String?,
+    internalTrial: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val active = phase == TunnelPhase.CONNECTED
+    val working = phase == TunnelPhase.STARTING || phase == TunnelPhase.VERIFYING
     Box(Modifier.fillMaxWidth().background(
         Brush.linearGradient(listOf(Color(0xFF292624), Color(0xFF55392E))),
         RoundedCornerShape(28.dp),
@@ -299,21 +309,44 @@ private fun SubscriptionHero(count: Int, selected: SubscriptionNode?) {
                 Text("تحریم‌گذر سادگی", Modifier.weight(1f), fontSize = 13.sp, color = Color(0xFFF8EEE6))
                 Text("نسخه آزمون", fontSize = 10.sp, color = Color(0xFFEDD1BD))
             }
-            Box(Modifier.size(96.dp).background(Color(0xFFEED4C4), CircleShape),
+            Box(Modifier.size(84.dp).background(Color(0xFFEED4C4), CircleShape),
                 contentAlignment = Alignment.Center) {
-                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 43.dp)
+                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 39.dp)
             }
             Text(
-                if (count == 0) "یک اشتراک اضافه کنید"
-                else if (selected == null) "${count} کانفیگ دریافت شد"
-                else "سرور انتخاب شد",
-                color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                when {
+                    phase == TunnelPhase.CONNECTED -> "اتصال تأیید شد"
+                    phase == TunnelPhase.VERIFYING -> "در حال بررسی ترافیک"
+                    phase == TunnelPhase.STARTING -> "در حال برقراری اتصال"
+                    phase == TunnelPhase.ERROR -> "اتصال برقرار نشد"
+                    selected == null && count > 0 -> "یکی از سرورها را انتخاب کنید"
+                    selected == null -> "یک اشتراک اضافه کنید"
+                    else -> selected.title
+                },
+                color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2,
+                textAlign = TextAlign.Center,
             )
             Text(
-                selected?.title ?: "اتصال پس از فعال‌سازی موتور VPN امکان‌پذیر است",
-                color = Color(0xFFE8D2C4), fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2,
+                statusMessage ?: if (selected == null) "وضعیت اتصال از موتور واقعی دریافت می‌شود"
+                    else selected.protocol + " · " + selected.location,
+                color = Color(0xFFE8D2C4), fontSize = 11.sp, textAlign = TextAlign.Center,
+                maxLines = 3,
             )
-            Text("VPN فعلاً غیرفعال است", fontSize = 11.sp, color = Color(0xFFFFC6A6))
+            if (internalTrial) {
+                if (active || working) {
+                    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
+                        Text("قطع اتصال", fontSize = 13.sp)
+                    }
+                } else {
+                    Button(onClick = onStart, enabled = selected != null,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("اتصال آزمایشی", fontSize = 13.sp)
+                    }
+                }
+            } else {
+                Text("اتصال تا تکمیل آزمون دستگاه غیرفعال است",
+                    color = Color(0xFFFFC6A6), fontSize = 11.sp)
+            }
         }
     }
 }
