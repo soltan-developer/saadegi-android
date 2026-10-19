@@ -32,6 +32,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.4.1"
+      - name: Pin and stage libXray Android native binary
+        run: bash scripts/prepare-libxray.sh
       - name: Unit tests and debug assemble
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - name: Store non-VPN debug preview APK

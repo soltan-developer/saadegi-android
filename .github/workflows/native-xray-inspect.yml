@@ -1,0 +1,42 @@
+name: Inspect pinned Xray Android release
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/native-xray-inspect.yml"
+      - "app/src/main/java/ir/saadegi/android/diagnostics/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download version-pinned upstream Xray release for inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 --connect-timeout 15 \
+            'https://github.com/XTLS/libXray/releases/download/v26.10.17/libxray-android.zip' \
+            -o /tmp/libxray-android.zip
+          test "$(stat -c%s /tmp/libxray-android.zip)" -lt 75000000
+          echo "Upstream archive SHA-256:"
+          sha256sum /tmp/libxray-android.zip
+          echo "Archive members:"
+          unzip -Z1 /tmp/libxray-android.zip | head -100
+          mkdir -p /tmp/xray-review
+          unzip -q /tmp/libxray-android.zip -d /tmp/xray-review
+          echo "AAR/JAR members:"
+          find /tmp/xray-review -maxdepth 4 \( -name '*.aar' -o -name '*.jar' \) -print
+          find /tmp/xray-review -name '*.aar' -print | while IFS= read -r aar; do
+            echo "AAR: $(basename "$aar")"
+            unzip -Z1 "$aar" | head -30
+            unzip -p "$aar" classes.jar >/tmp/xray-classes.jar || true
+            if test -s /tmp/xray-classes.jar; then
+              jar tf /tmp/xray-classes.jar | grep -Ei 'libxray|dialercontroller|processfinder' | head -60 || true
+              echo 'API signatures of libXray Android bindings:'
+              javap -classpath /tmp/xray-classes.jar libXray.LibXray libXray.DialerController | head -140
+
+            fi
+          done

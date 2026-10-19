@@ -24,3 +24,6 @@ secrets.properties
 *.vless
 *.vmess
 *.log
+
+# Bundled release-pinned native library is fetched and checksum-validated by build script
+app/libs/

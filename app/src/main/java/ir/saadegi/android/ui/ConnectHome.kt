@@ -151,6 +151,9 @@ fun ConnectHome() {
                 }
             }
             item {
+                DiagnosticsPanel(repo, visible, nodeId)
+            }
+            item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("سرورهای دریافتی", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     Text("${visible.size} از ${nodes.size}", fontSize = 12.sp, color = palette.onSurfaceVariant)

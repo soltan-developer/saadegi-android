@@ -59,6 +59,21 @@ object SubscriptionParser {
         return ParsedSubscription(nodes, parseUserInfo(userInfoHeader), nowMillis)
     }
 
+    /** Local-only lookup for the exact imported URI; credentials never flow to Compose state. */
+    fun findUri(raw: String, profileId: String): String? {
+        if (!Regex("^[a-f0-9]{24}$").matches(profileId)) return null
+        val payload = raw.trim().removePrefix("\uFEFF")
+        val text = if (payload.lineSequence().any { line ->
+            prefixes.any { line.trim().startsWith(it, ignoreCase = true) }
+        }) payload else decodeBase64(payload.replace("\r", "").replace("\n", "")) ?: return null
+        return text.lineSequence().map { it.trim() }.take(MAX_NODES + 1).firstOrNull { link ->
+            prefixes.any { link.startsWith(it, ignoreCase = true) } &&
+                MessageDigest.getInstance("SHA-256")
+                    .digest(link.toByteArray(StandardCharsets.UTF_8))
+                    .take(12).joinToString("") { "%02x".format(it) } == profileId
+        }
+    }
+
     private fun parseNode(link: String): SubscriptionNode? {
       return try {
         if (link.length > 12_000 || link.any { it == '\u0000' }) return null

@@ -53,6 +53,12 @@ class SubscriptionRepository(context: Context) {
         SubscriptionSnapshot(url.host, parsed)
     }
 
+    /** Only internal diagnostic code may request a profile's raw URI. Never send it to the UI. */
+    suspend fun getProfileUri(profileId: String): String? = withContext(Dispatchers.IO) {
+        val saved = decryptRead() ?: return@withContext null
+        SubscriptionParser.findUri(saved.body, profileId)
+    }
+
     suspend fun delete() = withContext(Dispatchers.IO) {
         if (file.exists() && !file.delete()) throw IllegalStateException("SUBSCRIPTION_REMOVE_FAILED")
     }
