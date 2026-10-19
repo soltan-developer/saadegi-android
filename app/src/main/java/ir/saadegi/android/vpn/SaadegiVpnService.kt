@@ -20,6 +20,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import libXray.LibXray
 import org.json.JSONObject
@@ -102,8 +104,10 @@ class SaadegiVpnService : VpnService() {
             native = gate
             if (!gate.start(outbounds.getJSONObject(0)))
                 throw IllegalStateException("TUN_START_FAILED")
+            currentCoroutineContext().ensureActive()
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.VERIFYING, profileId, "بررسی عبور واقعی ترافیک"))
             if (!verifyRoutedHttps()) throw IllegalStateException("VPN_TRAFFIC_VERIFICATION_FAILED")
+            currentCoroutineContext().ensureActive()
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.CONNECTED, profileId, "ترافیک VPN تأیید شد"))
         } catch (_: CancellationException) {
             native?.stop()
