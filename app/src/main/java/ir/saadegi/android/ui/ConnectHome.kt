@@ -137,13 +137,13 @@ fun ConnectHome() {
     val selected = nodes.firstOrNull { it.id == nodeId }
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Column(Modifier.padding(top = 8.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("اتصال، به سادگی", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text("مدیریت اشتراک بدون نیاز به ورود به حساب", color = palette.onSurfaceVariant, fontSize = 12.sp)
+            Column(Modifier.padding(top = 2.dp, bottom = 3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("تحریم‌گذر", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Text("اتصال و انتخاب سرور، بدون ورود به حساب", color = palette.onSurfaceVariant, fontSize = 12.sp)
             }
         }
         item { SubscriptionHero(nodes.size, selected, connection.phase, connection.message,
@@ -328,16 +328,16 @@ private fun SubscriptionHero(
         Brush.linearGradient(listOf(Color(0xFF292624), Color(0xFF55392E))),
         RoundedCornerShape(28.dp),
     )) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Text("تحریم‌گذر سادگی", Modifier.weight(1f), fontSize = 13.sp, color = Color(0xFFF8EEE6))
                 Text("نسخه آزمون", fontSize = 10.sp, color = Color(0xFFEDD1BD))
             }
-            Box(Modifier.size(84.dp).background(Color(0xFFEED4C4), CircleShape),
+            Box(Modifier.size(70.dp).background(Color(0xFFEED4C4), CircleShape),
                 contentAlignment = Alignment.Center) {
-                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 39.dp)
+                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 33.dp)
             }
             Text(
                 when {
@@ -349,7 +349,7 @@ private fun SubscriptionHero(
                     selected == null -> "یک اشتراک اضافه کنید"
                     else -> selected.title
                 },
-                color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2,
+                color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2,
                 textAlign = TextAlign.Center,
             )
             Text(
@@ -415,15 +415,15 @@ private fun ServerRow(node: SubscriptionNode, selected: Boolean, result: Quality
         color = if (selected) palette.secondaryContainer else palette.surface,
         shape = RoundedCornerShape(18.dp),
     ) {
-        Row(Modifier.padding(horizontal = 15.dp, vertical = 13.dp),
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            Box(Modifier.size(38.dp).background(palette.surfaceVariant, RoundedCornerShape(12.dp)),
+            Box(Modifier.size(34.dp).background(palette.surfaceVariant, RoundedCornerShape(11.dp)),
                 contentAlignment = Alignment.Center) {
                 SaadegiIcon(if (selected) AppIcon.Check else AppIcon.Globe, palette.primary)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(node.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2)
+                Text(node.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2)
                 Text("${node.protocol} · ${node.transport} · ${node.location}",
                     color = palette.onSurfaceVariant, fontSize = 11.sp)
                 result?.let {
