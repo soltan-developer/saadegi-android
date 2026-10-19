@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import ir.saadegi.android.diagnostics.ProbeMode
 import ir.saadegi.android.diagnostics.QualityResult
 import ir.saadegi.android.diagnostics.QualityScoring
+import ir.saadegi.android.diagnostics.SpeedTestPolicy
+import android.os.SystemClock
 import ir.saadegi.android.diagnostics.XrayNativeDiagnostics
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
@@ -55,8 +57,10 @@ fun DiagnosticsPanel(
     var completed by remember { mutableIntStateOf(0) }
     var lastMode by remember { mutableStateOf<ProbeMode?>(null) }
     var speed by remember { mutableStateOf<XrayNativeDiagnostics.SpeedResult?>(null) }
+    var speedNodeId by remember { mutableStateOf<String?>(null) }
     var showSpeedWarning by remember { mutableStateOf(false) }
     val measured = remember { mutableStateMapOf<String, QualityResult>() }
+    val measuredAt = remember { mutableStateMapOf<String, Long>() }
     val targetNodes = visibleNodes.take(XrayNativeDiagnostics.MAX_NODES_PER_RUN)
 
     fun runLatency(mode: ProbeMode) {
@@ -66,11 +70,15 @@ fun DiagnosticsPanel(
         completed = 0
         lastMode = mode
         measured.clear()
+        measuredAt.clear()
+        speed = null
+        speedNodeId = null
         scope.launch {
             try {
                 engine.measure(targetNodes.map { it.id }, mode) { result ->
                     withContext(Dispatchers.Main) {
                         measured[result.profileId] = result
+                        measuredAt[result.profileId] = SystemClock.elapsedRealtime()
                         completed++
                     }
                 }
@@ -82,13 +90,25 @@ fun DiagnosticsPanel(
 
     fun runSpeed() {
         val node = selectedNodeId ?: return
-        if (running) return
+        if (running || !SpeedTestPolicy.canTest(
+                node, measured[node], measuredAt[node], SystemClock.elapsedRealtime()
+            )) return
         running = true
         error = null
         speed = null
+        speedNodeId = null
         scope.launch {
             try {
-                speed = engine.testFiveMiB(node)
+                // A fresh real proxied HTTP check is mandatory before every
+                // 5 MiB transfer; an earlier result can become stale on handoff.
+                val check = engine.measure(listOf(node), ProbeMode.ONE_STEP) { }
+                    .firstOrNull()
+                if (check == null || check.successes == 0) {
+                    error = "ابتدا ارتباط واقعی سرور در شبکه فعلی باید موفق باشد."
+                } else {
+                    speed = engine.testFiveMiB(node)
+                    speedNodeId = node
+                }
             } catch (_: Exception) {
                 error = "دانلود از مسیر کانفیگ انتخاب‌شده ناموفق بود. سرور یا مسیر فایل آزمون را بررسی کنید."
             } finally { running = false }
@@ -145,21 +165,40 @@ fun DiagnosticsPanel(
                     }
                 }
             }
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !running && selectedNodeId != null,
-                onClick = { showSpeedWarning = true },
-            ) { Text("تست سرعت دانلود ۵ مگابایت", fontSize = 13.sp) }
-            Text(
-                if (selectedNodeId == null) "برای تست سرعت ابتدا یکی از سرورها را انتخاب کنید."
-                else "تست فقط از مسیر سرور انتخاب‌شده انجام می‌شود و از سهمیه اینترنت و اشتراک مصرف می‌کند.",
-                fontSize = 11.sp, color = colors.onSurfaceVariant,
+            val testedSelected = SpeedTestPolicy.canTest(
+                selectedNodeId, selectedNodeId?.let(measured::get),
+                selectedNodeId?.let(measuredAt::get), SystemClock.elapsedRealtime()
             )
-            speed?.let {
+            if (testedSelected && selectedNodeId != null) {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !running,
+                    onClick = { showSpeedWarning = true },
+                ) { Text("تست سرعت همین سرور · ۵ MiB", fontSize = 13.sp) }
                 Text(
-                    "دانلود ۵ MiB · " + String.format(Locale.US, "%.2f", it.mbps) + " Mbps · " +
+                    "فقط سرور انتخاب‌شده آزموده می‌شود. این دانلود از سهمیه اشتراک و اینترنت مصرف می‌کند.",
+                    fontSize = 11.sp, color = colors.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    if (selectedNodeId == null)
+                        "یکی از سرورها را انتخاب کنید؛ سپس تست تأخیر را اجرا کنید."
+                    else
+                        "برای نمایش تست سرعت، ابتدا تأخیر واقعی این سرور را با موفقیت اندازه بگیرید.",
+                    fontSize = 11.sp, color = colors.onSurfaceVariant,
+                )
+            }
+            if (speedNodeId == selectedNodeId) speed?.let {
+                Text(
+                    "دانلود کامل ۵ MiB · " +
+                        String.format(Locale.US, "%.2f", it.mbps) + " Mbps  (" +
+                        String.format(Locale.US, "%.2f", it.megabytesPerSecond) + " MB/s) · " +
                         String.format(Locale.US, "%.1f", it.seconds) + " ثانیه",
                     color = colors.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                )
+                if (it.lowConfidence) Text(
+                    "این انتقال خیلی کوتاه بود؛ نتیجه فقط تخمین سریع است، نه سرعت پایدار حداکثری.",
+                    fontSize = 11.sp, color = colors.onSurfaceVariant,
                 )
             }
             error?.let { Text(it, color = colors.error, fontSize = 12.sp) }
