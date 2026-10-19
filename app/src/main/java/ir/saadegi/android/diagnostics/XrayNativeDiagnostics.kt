@@ -13,7 +13,8 @@ import java.net.Proxy
 import java.net.ServerSocket
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
-import kotlin.math.roundToInt
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Network diagnostics genuinely routed through libXray, NOT direct phone-network ping.
@@ -26,7 +27,7 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
         private val nativeLock = Mutex()
         private const val LATENCY_URL = "https://cp.cloudflare.com/"
         private const val DOWNLOAD_URL = "https://speed.cloudflare.com/__down?bytes=5242880"
-        private const val EXPECTED_BYTES = 5 * 1024 * 1024
+        private const val EXPECTED_BYTES = SpeedTestPolicy.EXPECTED_DOWNLOAD_BYTES
         const val MAX_NODES_PER_RUN = 20
     }
 
@@ -34,6 +35,8 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
         val transferredBytes: Int,
         val seconds: Double,
         val mbps: Double,
+        val megabytesPerSecond: Double,
+        val lowConfidence: Boolean,
     )
 
     /** Fail closed when the core is already in use; no direct-network fallback. */
@@ -160,22 +163,42 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
             connection.connectTimeout = 9_000
             connection.readTimeout = 15_000
             connection.useCaches = false
-            connection.setRequestProperty("Cache-Control", "no-cache")
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store")
+            connection.setRequestProperty("Accept-Encoding", "identity")
             val startedAt = System.nanoTime()
             try {
-                if (connection.responseCode != 200) throw IllegalStateException("SPEED_ENDPOINT_UNAVAILABLE")
+                val statusCode = connection.responseCode
+                val declaredSize = connection.contentLengthLong
+                // Fail before downloading a mislabeled/compressed/oversized response.
+                if (statusCode != 200 ||
+                    (declaredSize >= 0 && declaredSize != EXPECTED_BYTES.toLong()) ||
+                    connection.contentEncoding?.lowercase() !in listOf(null, "identity")
+                ) throw IllegalStateException("SPEED_ENDPOINT_UNAVAILABLE")
                 var count = 0
                 connection.inputStream.use { input ->
                     val buffer = ByteArray(32768)
                     while (count < EXPECTED_BYTES) {
+                        currentCoroutineContext().ensureActive()
+                        if (System.nanoTime() - startedAt > 30_000_000_000L)
+                            throw IllegalStateException("SPEED_TIMEOUT")
                         val n = input.read(buffer, 0, minOf(buffer.size, EXPECTED_BYTES - count))
                         if (n <= 0) break
                         count += n
                     }
+                    // Ensure that an endpoint without Content-Length isn't sending more data.
+                    if (declaredSize < 0 && count == EXPECTED_BYTES && input.read() != -1)
+                        throw IllegalStateException("SPEED_ENDPOINT_TOO_LARGE")
                 }
                 val seconds = (System.nanoTime() - startedAt) / 1_000_000_000.0
-                if (count != EXPECTED_BYTES || seconds <= 0) throw IllegalStateException("INCOMPLETE_SPEED_TEST")
-                SpeedResult(count, seconds, count * 8.0 / seconds / 1_000_000.0)
+                if (!SpeedTestPolicy.meetsIntegrity(statusCode, declaredSize, count, seconds))
+                    throw IllegalStateException("INCOMPLETE_SPEED_TEST")
+                SpeedResult(
+                    transferredBytes = count,
+                    seconds = seconds,
+                    mbps = SpeedTestPolicy.mbps(count, seconds),
+                    megabytesPerSecond = SpeedTestPolicy.megabytesPerSecond(count, seconds),
+                    lowConfidence = SpeedTestPolicy.shortSample(seconds),
+                )
             } finally { connection.disconnect() }
         } finally {
             if (started) try { invoke("stopXray", JSONObject()) } catch (_: Exception) { /* safe stop attempt */ }
