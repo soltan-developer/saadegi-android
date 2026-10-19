@@ -113,6 +113,7 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
             assertCoreNotRunning()
             val allResults = mutableListOf<QualityResult>()
             for (group in profileIds.chunked(5)) {
+                currentCoroutineContext().ensureActive()
                 val configs: List<String?> = group.map { id ->
                     try { outboundConfig(outbound(id)) } catch (_: Exception) { null }
                 }
@@ -121,13 +122,16 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
                 // batch cannot warm the next connection. Avoid a fake warm-up.
                 val validIndices = configs.indices.filter { configs[it] != null }
                 repeat(mode.samples) { iteration ->
+                    currentCoroutineContext().ensureActive()
                     if (iteration > 0) delay(350)
                     val observed = try {
                         sampleBatch(validIndices.map { configs[it]!! }, endpoint)
                     } catch (_: Exception) {
+                        currentCoroutineContext().ensureActive()
                         VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TEST_ERROR)
                         List(validIndices.size) { null }
                     }
+                    currentCoroutineContext().ensureActive()
                     for (index in configs.indices) {
                         val measuredIndex = validIndices.indexOf(index)
                         samples[index] += if (measuredIndex < 0) null else observed[measuredIndex]
