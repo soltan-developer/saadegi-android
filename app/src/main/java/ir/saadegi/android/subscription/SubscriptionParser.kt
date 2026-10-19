@@ -59,7 +59,8 @@ object SubscriptionParser {
         return ParsedSubscription(nodes, parseUserInfo(userInfoHeader), nowMillis)
     }
 
-    private fun parseNode(link: String): SubscriptionNode? = try {
+    private fun parseNode(link: String): SubscriptionNode? {
+      return try {
         if (link.length > 12_000 || link.any { it == '\u0000' }) return null
         val scheme = link.substringBefore("://").lowercase(Locale.ROOT)
         val remark: String
@@ -103,14 +104,17 @@ object SubscriptionParser {
             compatibleWithCurrentEngine = protocol.lowercase(Locale.ROOT) in protocolsXray,
         )
     } catch (_: Exception) { null }
+    }
 
-    private fun parseSsHost(link: String): String? = try {
+    private fun parseSsHost(link: String): String? {
+      return try {
         val authority = link.substringAfter("ss://").substringBefore("?").substringBefore("#")
         val decodedAuthority = if (authority.contains("@")) authority else decodeBase64(authority) ?: return null
         val hostPort = decodedAuthority.substringAfterLast("@")
         val uri = URI("http://$hostPort")
         if (uri.port !in 1..65535) null else uri.host
     } catch (_: Exception) { null }
+    }
 
     private fun parseQueryValue(query: String?, name: String): String? =
         query?.split("&")?.firstOrNull { it.substringBefore("=") == name }
@@ -119,7 +123,8 @@ object SubscriptionParser {
     private fun decodeUrlPart(raw: String): String =
         runCatching { URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrDefault("")
 
-    private fun decodeBase64(raw: String): String? = try {
+    private fun decodeBase64(raw: String): String? {
+      return try {
         if (raw.length > MAX_BYTES * 2) return null
         val clean = raw.trim().replace('-', '+').replace('_', '/')
         val padded = clean + "=".repeat((4 - clean.length % 4) % 4)
@@ -127,6 +132,7 @@ object SubscriptionParser {
         if (decoded.size > MAX_BYTES) return null
         StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(decoded)).toString()
     } catch (_: Exception) { null }
+    }
 
     private val countryMatchers: List<Pair<String, List<String>>> = listOf(
         "آلمان" to listOf("🇩🇪", "germany", "deutschland", "آلمان", "🇩🇪 de", "[de]", "(de)"),
