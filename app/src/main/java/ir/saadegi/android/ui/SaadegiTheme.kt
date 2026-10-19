@@ -2,6 +2,10 @@ package ir.saadegi.android.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import ir.saadegi.android.R
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -22,6 +26,28 @@ object BrandColors {
     val Night = Color(0xFF262624)
     val NightSurface = Color(0xFF32312E)
     val NightAccent = Color(0xFFE8A87C)
+}
+
+private val vazirmatnFamily = FontFamily(Font(R.font.vazirmatn))
+
+private val saadegiTypography = Typography().let { base ->
+    Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = vazirmatnFamily),
+        displayMedium = base.displayMedium.copy(fontFamily = vazirmatnFamily),
+        displaySmall = base.displaySmall.copy(fontFamily = vazirmatnFamily),
+        headlineLarge = base.headlineLarge.copy(fontFamily = vazirmatnFamily),
+        headlineMedium = base.headlineMedium.copy(fontFamily = vazirmatnFamily),
+        headlineSmall = base.headlineSmall.copy(fontFamily = vazirmatnFamily),
+        titleLarge = base.titleLarge.copy(fontFamily = vazirmatnFamily),
+        titleMedium = base.titleMedium.copy(fontFamily = vazirmatnFamily),
+        titleSmall = base.titleSmall.copy(fontFamily = vazirmatnFamily),
+        bodyLarge = base.bodyLarge.copy(fontFamily = vazirmatnFamily),
+        bodyMedium = base.bodyMedium.copy(fontFamily = vazirmatnFamily),
+        bodySmall = base.bodySmall.copy(fontFamily = vazirmatnFamily),
+        labelLarge = base.labelLarge.copy(fontFamily = vazirmatnFamily),
+        labelMedium = base.labelMedium.copy(fontFamily = vazirmatnFamily),
+        labelSmall = base.labelSmall.copy(fontFamily = vazirmatnFamily),
+    )
 }
 
 @Composable
@@ -60,6 +86,7 @@ fun SaadegiTheme(content: @Composable () -> Unit) {
     }
     MaterialTheme(
         colorScheme = palette,
+        typography = saadegiTypography,
         content = content,
     )
 }
