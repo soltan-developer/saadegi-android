@@ -47,6 +47,7 @@ class SaadegiVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.STOP_REQUEST)
             stopConnection()
             stopSelf()
             return START_NOT_STICKY
@@ -54,14 +55,17 @@ class SaadegiVpnService : VpnService() {
         val profileId = intent?.getStringExtra(EXTRA_PROFILE_ID)
         if (intent?.action != ACTION_CONNECT ||
             profileId == null || !Regex("^[a-f0-9]{24}$").matches(profileId)) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.INVALID_PROFILE)
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.ERROR, message = "سرور معتبر انتخاب نشده است."))
             stopSelf()
             return START_NOT_STICKY
         }
         if (connectionJob?.isActive == true || native != null) return START_NOT_STICKY
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.SERVICE)
         try {
             startOngoingNotification()
         } catch (_: Exception) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.FOREGROUND_FAILED)
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.ERROR, message = "اجرای سرویس پس‌زمینه ممکن نشد."))
             stopSelf()
             return START_NOT_STICKY
@@ -85,18 +89,24 @@ class SaadegiVpnService : VpnService() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", pending)
             .build()
         startForeground(NOTIFICATION_ID, notification)
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.FOREGROUND)
     }
 
     private suspend fun connectAndVerify(profileId: String) {
         VpnLiveStatus.set(TunnelStatus(TunnelPhase.STARTING, profileId, "در حال آماده‌سازی تونل"))
         try {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.PROFILE_LOAD)
             val uri = SubscriptionRepository(this).getProfileUri(profileId)
                 ?: throw IllegalStateException("PROFILE_MISSING")
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.CONVERT)
             val converted = JSONObject(LibXray.invoke(JSONObject()
                 .put("apiVersion", 3)
                 .put("method", "convertShareLinksToXrayJson")
                 .put("payload", JSONObject().put("text", uri)).toString()))
-            if (!converted.optBoolean("success")) throw IllegalStateException("UNSUPPORTED_PROFILE")
+            if (!converted.optBoolean("success")) {
+                VpnDiagnosticLog.add(VpnDiagnosticLog.Step.CONVERT_FAILED)
+                throw IllegalStateException("UNSUPPORTED_PROFILE")
+            }
             val outbounds = converted.optJSONObject("data")?.optJSONArray("outbounds")
             if (outbounds == null || outbounds.length() != 1)
                 throw IllegalStateException("INVALID_PROFILE")
@@ -106,19 +116,30 @@ class SaadegiVpnService : VpnService() {
                 throw IllegalStateException("TUN_START_FAILED")
             currentCoroutineContext().ensureActive()
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.VERIFYING, profileId, "بررسی عبور واقعی ترافیک"))
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.VERIFY_BEGIN)
             if (!verifyRoutedHttps()) throw IllegalStateException("VPN_TRAFFIC_VERIFICATION_FAILED")
             currentCoroutineContext().ensureActive()
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.VERIFIED)
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.CONNECTED, profileId, "ترافیک VPN تأیید شد"))
         } catch (_: CancellationException) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.CANCELLED)
             native?.stop()
             native = null
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.IDLE))
             stopSelf()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            val mapped = when (error.message) {
+                "PROFILE_MISSING" -> VpnDiagnosticLog.Step.PROFILE_MISSING
+                "UNSUPPORTED_PROFILE", "INVALID_PROFILE" -> VpnDiagnosticLog.Step.CONVERT_FAILED
+                "TUN_START_FAILED" -> VpnDiagnosticLog.Step.TUN_FAILED
+                "VPN_TRAFFIC_VERIFICATION_FAILED" -> VpnDiagnosticLog.Step.VERIFY_HTTP_FAILED
+                else -> VpnDiagnosticLog.classify(error)
+            }
+            VpnDiagnosticLog.add(mapped)
             native?.stop()
             native = null
             VpnLiveStatus.set(TunnelStatus(TunnelPhase.ERROR, profileId,
-                "تونل یا ترافیک تأیید نشد؛ اتصال برای جلوگیری از قطع اینترنت متوقف شد."))
+                mapped.label + "؛ اتصال برای محافظت از اینترنت متوقف شد. گزارش عیب‌یابی را باز کنید."))
             stopSelf()
         }
     }
@@ -127,12 +148,14 @@ class SaadegiVpnService : VpnService() {
     private suspend fun verifyRoutedHttps(): Boolean = withContext(Dispatchers.IO) {
         val connectivity = getSystemService(ConnectivityManager::class.java)
         val target = URL("https://www.gstatic.com/generate_204")
+        var foundVpn = false
         repeat(15) {
             val active: Network? = connectivity.allNetworks.firstOrNull { network ->
                 connectivity.getNetworkCapabilities(network)
                     ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
             }
             if (active != null) {
+                foundVpn = true
                 try {
                     val connection = active.openConnection(target) as HttpsURLConnection
                     connection.instanceFollowRedirects = false
@@ -145,6 +168,7 @@ class SaadegiVpnService : VpnService() {
             }
             delay(400)
         }
+        if (!foundVpn) VpnDiagnosticLog.add(VpnDiagnosticLog.Step.VERIFY_NETWORK_MISSING)
         false
     }
 
@@ -155,9 +179,11 @@ class SaadegiVpnService : VpnService() {
         native?.stop()
         native = null
         VpnLiveStatus.set(TunnelStatus(TunnelPhase.IDLE))
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.STOPPED)
     }
 
     override fun onRevoke() {
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.REVOKED)
         stopConnection()
         stopSelf()
         super.onRevoke()
