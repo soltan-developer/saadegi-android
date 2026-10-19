@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ir.saadegi.android.diagnostics.ProbeEndpoint
 import ir.saadegi.android.diagnostics.ProbeMode
 import ir.saadegi.android.diagnostics.QualityResult
 import ir.saadegi.android.diagnostics.QualityScoring
@@ -60,6 +61,7 @@ fun DiagnosticsPanel(
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
     var showModePicker by remember { mutableStateOf(false) }
+    var endpoint by remember { mutableStateOf(ProbeEndpoint.GOOGLE) }
     var error by remember { mutableStateOf<String?>(null) }
     var completed by remember { mutableIntStateOf(0) }
     var lastMode by remember { mutableStateOf<ProbeMode?>(null) }
@@ -82,7 +84,7 @@ fun DiagnosticsPanel(
         speedNodeId = null
         scope.launch {
             try {
-                engine.measure(targetNodes.map { it.id }, mode) { result ->
+                engine.measure(targetNodes.map { it.id }, mode, endpoint) { result ->
                     withContext(Dispatchers.Main) {
                         measured[result.profileId] = result
                         measuredAt[result.profileId] = SystemClock.elapsedRealtime()
@@ -108,7 +110,7 @@ fun DiagnosticsPanel(
             try {
                 // A fresh real proxied HTTP check is mandatory before every
                 // 5 MiB transfer; an earlier result can become stale on handoff.
-                val check = engine.measure(listOf(node), ProbeMode.ONE_STEP) { }
+                val check = engine.measure(listOf(node), ProbeMode.ONE_STEP, endpoint) { }
                     .firstOrNull()
                 if (check == null || check.successes == 0) {
                     error = "ابتدا ارتباط واقعی سرور در شبکه فعلی باید موفق باشد."
@@ -124,20 +126,18 @@ fun DiagnosticsPanel(
 
     Surface(shape = RoundedCornerShape(22.dp), color = colors.surface) {
         Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("سنجش واقعی کیفیت اتصال", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("آزمایش کیفیت سرورها", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
-                "تأخیر HTTP واقعی از داخل Xray؛ قابل مقایسه در URL یکسان.",
+                "زمان پاسخ HTTP از مسیر Xray؛ این عدد پینگ TCP نیست.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
             )
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !running && !vpnActive && targetNodes.isNotEmpty(),
                 onClick = { showModePicker = true },
-            ) { Text("تست تأخیر سرورها  ▾", fontSize = 14.sp) }
-            Text(
-                "سه‌مرحله‌ای: سه درخواست برای بررسی موفقیت، میانه تأخیر و نوسان؛ برای یافتن سرور پایدارتر مناسب‌تر است.",
-                color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
-            )
+            ) { Text("شروع تست تأخیر  ▾", fontSize = 14.sp) }
+            Text("مقصد: " + endpoint.label + " · زمان پاسخ شامل اتصال و TLS است",
+                color = colors.onSurfaceVariant, fontSize = 11.sp)
             if (visibleNodes.size > targetNodes.size) Text(
                 "برای مدیریت زمان و مصرف، هر بار نخستین ۲۰ سرور فیلترشده سنجیده می‌شوند.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp,
@@ -151,7 +151,7 @@ fun DiagnosticsPanel(
                 color = colors.onSurfaceVariant, fontSize = 11.sp)
             if (lastMode != null && measured.isNotEmpty()) {
                 val successful = measured.values.count { it.successes > 0 }
-                Text("نتیجه: " + successful + " سرور پاسخ‌گو · نمایش تأخیر در فهرست پایین",
+                Text("نتیجه: " + successful + " از " + measured.size + " سرور پاسخ‌گو · جزئیات روی کارت هر سرور",
                     fontSize = 12.sp, color = colors.onSurfaceVariant)
             }
             val testedSelected = SpeedTestPolicy.canTest(
@@ -200,9 +200,20 @@ fun DiagnosticsPanel(
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("انتخاب روش سنجش", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("هر تست، درخواست HTTP واقعی با URL پیش‌فرض v2rayNG ارسال می‌کند.",
+            Text("تنظیمات تست تأخیر", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("سرور مقصد را انتخاب کن. در هر دو برنامه از همین URL استفاده کن تا نتیجه قابل مقایسه باشد.",
                 color = colors.onSurfaceVariant, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProbeEndpoint.entries.forEach { option ->
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { endpoint = option },
+                        enabled = endpoint != option,
+                    ) { Text(option.label, fontSize = 11.sp) }
+                }
+            }
+            Text("در سه‌مرحله‌ای هر درخواست مستقل است. به علت راه‌اندازی مجدد هسته، زمان ممکن است بیشتر از حالت متصل باشد.",
+                fontSize = 11.sp, color = colors.onSurfaceVariant)
             Button(modifier = Modifier.fillMaxWidth(), onClick = {
                 showModePicker = false
                 runLatency(ProbeMode.ONE_STEP)
