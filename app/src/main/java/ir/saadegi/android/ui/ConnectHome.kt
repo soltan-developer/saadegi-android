@@ -193,7 +193,10 @@ fun ConnectHome() {
                 }
             }
             item {
-                DiagnosticsPanel(repo, visible, nodeId, nodeResults)
+                DiagnosticsPanel(repo, visible, nodeId, nodeResults,
+                    vpnActive = connection.phase == TunnelPhase.CONNECTED ||
+                        connection.phase == TunnelPhase.STARTING ||
+                        connection.phase == TunnelPhase.VERIFYING)
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
