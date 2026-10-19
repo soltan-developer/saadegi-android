@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,28 +46,32 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /** All displayed latency/speed results originate from a real Xray-proxied request. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiagnosticsPanel(
     repository: SubscriptionRepository,
     visibleNodes: List<SubscriptionNode>,
     selectedNodeId: String?,
+    measurements: MutableMap<String, QualityResult>,
+    vpnActive: Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
     val engine = remember(repository) { XrayNativeDiagnostics(repository) }
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
+    var showModePicker by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var completed by remember { mutableIntStateOf(0) }
     var lastMode by remember { mutableStateOf<ProbeMode?>(null) }
     var speed by remember { mutableStateOf<XrayNativeDiagnostics.SpeedResult?>(null) }
     var speedNodeId by remember { mutableStateOf<String?>(null) }
     var showSpeedWarning by remember { mutableStateOf(false) }
-    val measured = remember { mutableStateMapOf<String, QualityResult>() }
+    val measured = measurements
     val measuredAt = remember { mutableStateMapOf<String, Long>() }
     val targetNodes = visibleNodes.take(XrayNativeDiagnostics.MAX_NODES_PER_RUN)
 
     fun runLatency(mode: ProbeMode) {
-        if (running || targetNodes.isEmpty()) return
+        if (running || vpnActive || targetNodes.isEmpty()) return
         running = true
         error = null
         completed = 0
@@ -90,7 +97,7 @@ fun DiagnosticsPanel(
 
     fun runSpeed() {
         val node = selectedNodeId ?: return
-        if (running || !SpeedTestPolicy.canTest(
+        if (running || vpnActive || !SpeedTestPolicy.canTest(
                 node, measured[node], measuredAt[node], SystemClock.elapsedRealtime()
             )) return
         running = true
@@ -119,19 +126,14 @@ fun DiagnosticsPanel(
         Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("سنجش واقعی کیفیت اتصال", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(
-                "تأخیر از درخواست واقعی HTTP داخل Xray به دست می‌آید، نه پینگ مستقیم گوشی.",
+                "تأخیر HTTP واقعی از داخل Xray؛ قابل مقایسه در URL یکسان.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(modifier = Modifier.weight(1f), enabled = !running && targetNodes.isNotEmpty(),
-                    onClick = { runLatency(ProbeMode.ONE_STEP) }) {
-                    Text("یک‌مرحله‌ای", fontSize = 12.sp, maxLines = 1)
-                }
-                OutlinedButton(modifier = Modifier.weight(1f), enabled = !running && targetNodes.isNotEmpty(),
-                    onClick = { runLatency(ProbeMode.THREE_STEP) }) {
-                    Text("سه‌مرحله‌ای", fontSize = 12.sp, maxLines = 1)
-                }
-            }
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !running && !vpnActive && targetNodes.isNotEmpty(),
+                onClick = { showModePicker = true },
+            ) { Text("تست تأخیر سرورها  ▾", fontSize = 14.sp) }
             Text(
                 "سه‌مرحله‌ای: سه درخواست برای بررسی موفقیت، میانه تأخیر و نوسان؛ برای یافتن سرور پایدارتر مناسب‌تر است.",
                 color = colors.onSurfaceVariant, fontSize = 11.sp, lineHeight = 17.sp,
@@ -145,25 +147,12 @@ fun DiagnosticsPanel(
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("در حال آزمون… " + completed + " از " + targetNodes.size, fontSize = 12.sp)
             }
+            if (vpnActive) Text("برای آزمایش سایر کانفیگ‌ها ابتدا اتصال آزمایشی را قطع کنید.",
+                color = colors.onSurfaceVariant, fontSize = 11.sp)
             if (lastMode != null && measured.isNotEmpty()) {
-                Text("نتایج واقعی (" + (if (lastMode == ProbeMode.ONE_STEP) "یک" else "سه") + " مرحله)",
-                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                QualityScoring.rank(measured.values.toList()).forEachIndexed { index, result ->
-                    val node = visibleNodes.firstOrNull { it.id == result.profileId }
-                    Column(Modifier.fillMaxWidth().background(colors.surfaceVariant, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text((index + 1).toString() + ". " + (node?.title ?: "سرور"),
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                        val description = if (result.medianLatencyMs == null) "اتصال ناموفق" else
-                            result.medianLatencyMs.toString() + " ms · موفق " +
-                                result.successes + "/" + result.attempts +
-                                (result.jitterMs?.let { " · نوسان " + it + "ms" } ?: "") +
-                                (result.stabilityScore?.let { " · امتیاز " + it } ?: "")
-                        Text(description, color = if (result.successes == 0) colors.error else colors.onSurfaceVariant,
-                            fontSize = 11.sp)
-                    }
-                }
+                val successful = measured.values.count { it.successes > 0 }
+                Text("نتیجه: " + successful + " سرور پاسخ‌گو · نمایش تأخیر در فهرست پایین",
+                    fontSize = 12.sp, color = colors.onSurfaceVariant)
             }
             val testedSelected = SpeedTestPolicy.canTest(
                 selectedNodeId, selectedNodeId?.let(measured::get),
@@ -202,6 +191,28 @@ fun DiagnosticsPanel(
                 )
             }
             error?.let { Text(it, color = colors.error, fontSize = 12.sp) }
+        }
+    }
+
+    if (showModePicker) ModalBottomSheet(
+        onDismissRequest = { showModePicker = false },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("انتخاب روش سنجش", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("هر تست، درخواست HTTP واقعی با URL پیش‌فرض v2rayNG ارسال می‌کند.",
+                color = colors.onSurfaceVariant, fontSize = 12.sp)
+            Button(modifier = Modifier.fillMaxWidth(), onClick = {
+                showModePicker = false
+                runLatency(ProbeMode.ONE_STEP)
+            }) { Text("سنجش سریع · یک‌مرحله‌ای") }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                showModePicker = false
+                runLatency(ProbeMode.THREE_STEP)
+            }) { Text("سنجش پایداری · سه‌مرحله‌ای") }
+            Text("برای مقایسه منصفانه با v2rayNG هر دو اپ را روی یک اینترنت و URL یکسان بسنجید.",
+                color = colors.onSurfaceVariant, fontSize = 11.sp)
         }
     }
 

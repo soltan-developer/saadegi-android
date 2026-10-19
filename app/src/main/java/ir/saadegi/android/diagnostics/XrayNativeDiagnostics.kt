@@ -25,7 +25,7 @@ import kotlinx.coroutines.ensureActive
 class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
     companion object {
         private val nativeLock = Mutex()
-        private const val LATENCY_URL = "https://cp.cloudflare.com/"
+        private const val LATENCY_URL = "https://www.gstatic.com/generate_204"
         private const val DOWNLOAD_URL = "https://speed.cloudflare.com/__down?bytes=5242880"
         private const val EXPECTED_BYTES = SpeedTestPolicy.EXPECTED_DOWNLOAD_BYTES
         const val MAX_NODES_PER_RUN = 20
@@ -110,9 +110,15 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
                     try { outboundConfig(outbound(id)) } catch (_: Exception) { null }
                 }
                 val samples: List<MutableList<Long?>> = group.map { mutableListOf<Long?>() }
+                // Warm-up is explicitly excluded from reported samples. It primes resolver/transport
+                // caches without claiming the first cold handshake is steady-state latency.
+                // It does not guarantee parity with v2rayNG on different phones/networks.
+                val validIndices = configs.indices.filter { configs[it] != null }
+                if (validIndices.isNotEmpty()) {
+                    try { sampleBatch(validIndices.map { configs[it]!! }) } catch (_: Exception) { }
+                }
                 repeat(mode.samples) { iteration ->
                     if (iteration > 0) delay(350)
-                    val validIndices = configs.indices.filter { configs[it] != null }
                     val observed = try {
                         sampleBatch(validIndices.map { configs[it]!! })
                     } catch (_: Exception) { List(validIndices.size) { null } }

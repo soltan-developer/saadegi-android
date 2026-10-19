@@ -36,3 +36,7 @@ Keep this app's source separate. In the site create \`/api/mobile/v1\` via its o
 ## Environment limitation in this PR
 
 Android SDK and Gradle were not installed in the build environment, and outbound DNS to distribution servers was unavailable. The connected repository was updated with source files, but no Android APK was compiled or device connectivity verified here. GitHub Actions is included to provide an actual build outcome once CI is available.
+
+## ABI sizing policy
+
+The debug preview targets **arm64-v8a only**; shipping all four upstream libXray architectures in one APK was wasteful. CI asserts only one native ABI and logs exact APK bytes. Older 32-bit-only devices need a separately signed build later. The final Play release should normally use Android App Bundles for per-device delivery. APK build PASS does not prove that an Android tunnel can pass traffic.

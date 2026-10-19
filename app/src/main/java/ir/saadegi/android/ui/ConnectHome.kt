@@ -1,5 +1,11 @@
 package ir.saadegi.android.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.net.VpnService
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,6 +27,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ir.saadegi.android.diagnostics.QualityResult
+import ir.saadegi.android.vpn.SaadegiVpnService
+import ir.saadegi.android.vpn.TunnelPhase
+import ir.saadegi.android.vpn.VpnLiveStatus
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
 import ir.saadegi.android.subscription.SubscriptionSnapshot
@@ -49,7 +59,37 @@ fun ConnectHome() {
     var linkVisible by remember { mutableStateOf(false) }
     var location by rememberSaveable { mutableStateOf("همه سرورها") }
     var nodeId by rememberSaveable { mutableStateOf<String?>(null) }
+    val nodeResults = remember { mutableStateMapOf<String, QualityResult>() }
     val palette = MaterialTheme.colorScheme
+    val connection by VpnLiveStatus.state.collectAsState()
+    val internalTrial = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    var showTrialConsent by remember { mutableStateOf(false) }
+    val approval = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && nodeId != null) {
+            val service = Intent(context, SaadegiVpnService::class.java).apply {
+                action = SaadegiVpnService.ACTION_CONNECT
+                putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
+            }
+            context.startForegroundService(service)
+        }
+    }
+    fun startConnection() {
+        if (!internalTrial || nodeId == null) return
+        val request = VpnService.prepare(context)
+        if (request == null) {
+            val service = Intent(context, SaadegiVpnService::class.java).apply {
+                action = SaadegiVpnService.ACTION_CONNECT
+                putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
+            }
+            context.startForegroundService(service)
+        } else approval.launch(request)
+    }
+    fun stopConnection() {
+        val service = Intent(context, SaadegiVpnService::class.java).apply {
+            action = SaadegiVpnService.ACTION_STOP
+        }
+        context.startService(service)
+    }
 
     fun runAction(action: suspend () -> SubscriptionSnapshot?) {
         if (busy) return
@@ -58,6 +98,7 @@ fun ConnectHome() {
         scope.launch {
             try {
                 snapshot = action()
+                nodeResults.clear()
                 val nodes = snapshot?.parsed?.nodes.orEmpty()
                 if (location != "همه سرورها" && nodes.none { it.location == location }) location = "همه سرورها"
                 if (nodes.none { it.id == nodeId }) nodeId = null
@@ -94,7 +135,8 @@ fun ConnectHome() {
                 Text("مدیریت اشتراک بدون نیاز به ورود به حساب", color = palette.onSurfaceVariant, fontSize = 12.sp)
             }
         }
-        item { SubscriptionHero(nodes.size, selected) }
+        item { SubscriptionHero(nodes.size, selected, connection.phase, connection.message,
+            internalTrial, onStart = { showTrialConsent = true }, onStop = { stopConnection() }) }
         item {
             Surface(color = palette.surface, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -151,7 +193,10 @@ fun ConnectHome() {
                 }
             }
             item {
-                DiagnosticsPanel(repo, visible, nodeId)
+                DiagnosticsPanel(repo, visible, nodeId, nodeResults,
+                    vpnActive = connection.phase == TunnelPhase.CONNECTED ||
+                        connection.phase == TunnelPhase.STARTING ||
+                        connection.phase == TunnelPhase.VERIFYING)
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -160,7 +205,7 @@ fun ConnectHome() {
                 }
             }
             items(visible, key = { it.id }) { node ->
-                ServerRow(node, nodeId == node.id) { nodeId = node.id }
+                ServerRow(node, nodeId == node.id, nodeResults[node.id]) { nodeId = node.id }
             }
             item {
                 Text(
@@ -171,6 +216,16 @@ fun ConnectHome() {
             }
         }
     }
+
+    if (showTrialConsent) AlertDialog(
+        onDismissRequest = { showTrialConsent = false },
+        title = { Text("اتصال آزمایشی اندروید") },
+        text = { Text("این نسخه داخلی هنوز روی دستگاه واقعی تأیید نشده است. ممکن است اینترنت موقتاً قطع شود. اگر بررسی ترافیک شکست بخورد، تونل بسته می‌شود. برای ادامه اجازه VPN اندروید لازم است.") },
+        confirmButton = { TextButton(onClick = { showTrialConsent = false; startConnection() }) {
+            Text("تلاش برای اتصال")
+        } },
+        dismissButton = { TextButton(onClick = { showTrialConsent = false }) { Text("انصراف") } },
+    )
 
     if (showImport) AlertDialog(
         onDismissRequest = { showImport = false; link = "" },
@@ -235,7 +290,17 @@ fun ConnectHome() {
 }
 
 @Composable
-private fun SubscriptionHero(count: Int, selected: SubscriptionNode?) {
+private fun SubscriptionHero(
+    count: Int,
+    selected: SubscriptionNode?,
+    phase: TunnelPhase,
+    statusMessage: String?,
+    internalTrial: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val active = phase == TunnelPhase.CONNECTED
+    val working = phase == TunnelPhase.STARTING || phase == TunnelPhase.VERIFYING
     Box(Modifier.fillMaxWidth().background(
         Brush.linearGradient(listOf(Color(0xFF292624), Color(0xFF55392E))),
         RoundedCornerShape(28.dp),
@@ -247,21 +312,44 @@ private fun SubscriptionHero(count: Int, selected: SubscriptionNode?) {
                 Text("تحریم‌گذر سادگی", Modifier.weight(1f), fontSize = 13.sp, color = Color(0xFFF8EEE6))
                 Text("نسخه آزمون", fontSize = 10.sp, color = Color(0xFFEDD1BD))
             }
-            Box(Modifier.size(96.dp).background(Color(0xFFEED4C4), CircleShape),
+            Box(Modifier.size(84.dp).background(Color(0xFFEED4C4), CircleShape),
                 contentAlignment = Alignment.Center) {
-                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 43.dp)
+                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 39.dp)
             }
             Text(
-                if (count == 0) "یک اشتراک اضافه کنید"
-                else if (selected == null) "${count} کانفیگ دریافت شد"
-                else "سرور انتخاب شد",
-                color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                when {
+                    phase == TunnelPhase.CONNECTED -> "اتصال تأیید شد"
+                    phase == TunnelPhase.VERIFYING -> "در حال بررسی ترافیک"
+                    phase == TunnelPhase.STARTING -> "در حال برقراری اتصال"
+                    phase == TunnelPhase.ERROR -> "اتصال برقرار نشد"
+                    selected == null && count > 0 -> "یکی از سرورها را انتخاب کنید"
+                    selected == null -> "یک اشتراک اضافه کنید"
+                    else -> selected.title
+                },
+                color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2,
+                textAlign = TextAlign.Center,
             )
             Text(
-                selected?.title ?: "اتصال پس از فعال‌سازی موتور VPN امکان‌پذیر است",
-                color = Color(0xFFE8D2C4), fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2,
+                statusMessage ?: if (selected == null) "وضعیت اتصال از موتور واقعی دریافت می‌شود"
+                    else selected.protocol + " · " + selected.location,
+                color = Color(0xFFE8D2C4), fontSize = 11.sp, textAlign = TextAlign.Center,
+                maxLines = 3,
             )
-            Text("VPN فعلاً غیرفعال است", fontSize = 11.sp, color = Color(0xFFFFC6A6))
+            if (internalTrial) {
+                if (active || working) {
+                    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
+                        Text("قطع اتصال", fontSize = 13.sp)
+                    }
+                } else {
+                    Button(onClick = onStart, enabled = selected != null,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("اتصال آزمایشی", fontSize = 13.sp)
+                    }
+                }
+            } else {
+                Text("اتصال تا تکمیل آزمون دستگاه غیرفعال است",
+                    color = Color(0xFFFFC6A6), fontSize = 11.sp)
+            }
         }
     }
 }
@@ -297,7 +385,7 @@ private fun SubscriptionUsageCard(snapshot: SubscriptionSnapshot) {
 }
 
 @Composable
-private fun ServerRow(node: SubscriptionNode, selected: Boolean, onSelect: () -> Unit) {
+private fun ServerRow(node: SubscriptionNode, selected: Boolean, result: QualityResult?, onSelect: () -> Unit) {
     val palette = MaterialTheme.colorScheme
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
@@ -315,6 +403,17 @@ private fun ServerRow(node: SubscriptionNode, selected: Boolean, onSelect: () ->
                 Text(node.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2)
                 Text("${node.protocol} · ${node.transport} · ${node.location}",
                     color = palette.onSurfaceVariant, fontSize = 11.sp)
+                result?.let {
+                    Text(
+                        if (it.medianLatencyMs == null) "بدون پاسخ · " + it.successes + "/" + it.attempts
+                        else "HTTP " + it.medianLatencyMs + " ms · موفق " + it.successes +
+                            "/" + it.attempts +
+                            (it.jitterMs?.let { jitter -> " · نوسان " + jitter + " ms" } ?: ""),
+                        fontSize = 11.sp,
+                        color = if (it.successes == 0) palette.error else palette.primary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
             if (!node.compatibleWithCurrentEngine) {
                 Text("موتور دیگر", color = palette.error, fontSize = 10.sp)

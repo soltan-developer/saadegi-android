@@ -14,6 +14,8 @@ android {
         versionCode = 1
         versionName = "0.1.0-internal"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Internal preview for current 64-bit Android phones. Do NOT ship a universal multi-ABI APK.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -23,7 +25,9 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // The debug build exercises native connection in a guarded lab mode.
+            // Separate internal native-VPN test package: keep the existing preview untouched.
+            applicationIdSuffix = ".lab"
             versionNameSuffix = "-debug"
         }
     }

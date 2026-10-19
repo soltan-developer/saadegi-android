@@ -36,10 +36,23 @@ jobs:
         run: bash scripts/prepare-libxray.sh
       - name: Unit tests and debug assemble
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
-      - name: Store non-VPN debug preview APK
+      - name: Inspect APK size and packaged native ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          echo "APK_BYTES=$(stat -c%s "$apk")"
+          echo "APK_MIB=$(du -m "$apk" | cut -f1)"
+          echo "Native libraries in APK:"
+          unzip -Z1 "$apk" | grep "^lib/" | cut -d/ -f2 | sort -u
+          count=$(unzip -Z1 "$apk" | grep "^lib/" | cut -d/ -f2 | sort -u | wc -l)
+          test "$count" -eq 1
+          unzip -Z1 "$apk" | grep -q "^lib/arm64-v8a/"
+          echo "This is an INTERNAL native tunnel trial, not a production VPN release."
+      - name: Store arm64 internal VPN test APK
         uses: actions/upload-artifact@v4
         with:
-          name: saadegi-android-ui-preview
+          name: saadegi-android-arm64-internal
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
