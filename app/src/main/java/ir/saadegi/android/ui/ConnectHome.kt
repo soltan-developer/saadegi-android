@@ -1,5 +1,11 @@
 package ir.saadegi.android.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.net.VpnService
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,6 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.saadegi.android.diagnostics.QualityResult
+import ir.saadegi.android.vpn.SaadegiVpnService
+import ir.saadegi.android.vpn.TunnelPhase
+import ir.saadegi.android.vpn.VpnLiveStatus
 import ir.saadegi.android.subscription.SubscriptionNode
 import ir.saadegi.android.subscription.SubscriptionRepository
 import ir.saadegi.android.subscription.SubscriptionSnapshot
@@ -52,6 +61,35 @@ fun ConnectHome() {
     var nodeId by rememberSaveable { mutableStateOf<String?>(null) }
     val nodeResults = remember { mutableStateMapOf<String, QualityResult>() }
     val palette = MaterialTheme.colorScheme
+    val connection by VpnLiveStatus.state.collectAsState()
+    val internalTrial = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    var showTrialConsent by remember { mutableStateOf(false) }
+    val approval = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && nodeId != null) {
+            val service = Intent(context, SaadegiVpnService::class.java).apply {
+                action = SaadegiVpnService.ACTION_CONNECT
+                putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
+            }
+            context.startForegroundService(service)
+        }
+    }
+    fun startConnection() {
+        if (!internalTrial || nodeId == null) return
+        val request = VpnService.prepare(context)
+        if (request == null) {
+            val service = Intent(context, SaadegiVpnService::class.java).apply {
+                action = SaadegiVpnService.ACTION_CONNECT
+                putExtra(SaadegiVpnService.EXTRA_PROFILE_ID, nodeId)
+            }
+            context.startForegroundService(service)
+        } else approval.launch(request)
+    }
+    fun stopConnection() {
+        val service = Intent(context, SaadegiVpnService::class.java).apply {
+            action = SaadegiVpnService.ACTION_STOP
+        }
+        context.startService(service)
+    }
 
     fun runAction(action: suspend () -> SubscriptionSnapshot?) {
         if (busy) return
@@ -97,7 +135,8 @@ fun ConnectHome() {
                 Text("مدیریت اشتراک بدون نیاز به ورود به حساب", color = palette.onSurfaceVariant, fontSize = 12.sp)
             }
         }
-        item { SubscriptionHero(nodes.size, selected) }
+        item { SubscriptionHero(nodes.size, selected, connection.phase, connection.message,
+            internalTrial, onStart = { showTrialConsent = true }, onStop = { stopConnection() }) }
         item {
             Surface(color = palette.surface, shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -174,6 +213,16 @@ fun ConnectHome() {
             }
         }
     }
+
+    if (showTrialConsent) AlertDialog(
+        onDismissRequest = { showTrialConsent = false },
+        title = { Text("اتصال آزمایشی اندروید") },
+        text = { Text("این نسخه داخلی هنوز روی دستگاه واقعی تأیید نشده است. ممکن است اینترنت موقتاً قطع شود. اگر بررسی ترافیک شکست بخورد، تونل بسته می‌شود. برای ادامه اجازه VPN اندروید لازم است.") },
+        confirmButton = { TextButton(onClick = { showTrialConsent = false; startConnection() }) {
+            Text("تلاش برای اتصال")
+        } },
+        dismissButton = { TextButton(onClick = { showTrialConsent = false }) { Text("انصراف") } },
+    )
 
     if (showImport) AlertDialog(
         onDismissRequest = { showImport = false; link = "" },
