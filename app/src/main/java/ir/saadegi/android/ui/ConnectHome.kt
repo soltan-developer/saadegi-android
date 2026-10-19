@@ -1,246 +1,323 @@
 package ir.saadegi.android.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ir.saadegi.android.subscription.SubscriptionNode
+import ir.saadegi.android.subscription.SubscriptionRepository
+import ir.saadegi.android.subscription.SubscriptionSnapshot
+import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * One screen, one job: future VPN connect. Clearly labeled UI-only preview.
- * No invented ping, available node, consumed traffic, or connection status.
+ * Subscription-only pilot: live imported node metadata, no fake countries or connected state.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectHome() {
-    var selectedCountry by rememberSaveable { mutableStateOf("هوشمند") }
-    var countrySheetVisible by rememberSaveable { mutableStateOf(false) }
-    val colors = MaterialTheme.colorScheme
-    val countries = listOf("هوشمند", "آلمان", "هلند", "ترکیه")
+    val context = LocalContext.current
+    val repo = remember(context) { SubscriptionRepository(context) }
+    val scope = rememberCoroutineScope()
+    var snapshot by remember { mutableStateOf<SubscriptionSnapshot?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showImport by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
+    var showLocations by remember { mutableStateOf(false) }
+    var link by remember { mutableStateOf("") }
+    var linkVisible by remember { mutableStateOf(false) }
+    var location by rememberSaveable { mutableStateOf("همه سرورها") }
+    var nodeId by rememberSaveable { mutableStateOf<String?>(null) }
+    val palette = MaterialTheme.colorScheme
 
-    Column(
-        modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Spacer(Modifier.height(4.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("اتصال، به سادگی", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = colors.onBackground)
-            Text(
-                "یک لمس تا دنیای بدون محدودیت",
-                fontSize = 13.sp,
-                color = colors.onSurfaceVariant,
-            )
-        }
-        ConnectionHero()
-        Surface(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-                .clickable { countrySheetVisible = true },
-            color = colors.surface,
-            shape = RoundedCornerShape(22.dp),
-            tonalElevation = 0.dp,
-            shadowElevation = 1.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 17.dp, vertical = 17.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    Modifier.size(44.dp).background(colors.secondaryContainer, RoundedCornerShape(15.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    SaadegiIcon(AppIcon.Globe, colors.onSecondaryContainer)
+    fun runAction(action: suspend () -> SubscriptionSnapshot?) {
+        if (busy) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                snapshot = action()
+                val nodes = snapshot?.parsed?.nodes.orEmpty()
+                if (location != "همه سرورها" && nodes.none { it.location == location }) location = "همه سرورها"
+                if (nodes.none { it.id == nodeId }) nodeId = null
+            } catch (ex: Exception) {
+                error = when (ex.message) {
+                    "INVALID_SUBSCRIPTION_URL" -> "فقط لینک معتبر HTTPS پذیرفته می‌شود."
+                    "SUBSCRIPTION_FORMAT_UNSUPPORTED" -> "فرمت اشتراک قابل شناسایی نیست؛ فعلاً لینک‌های متنی و Base64 پشتیبانی می‌شوند."
+                    "NO_VALID_NODES" -> "هیچ کانفیگ معتبری در اشتراک پیدا نشد."
+                    "SUBSCRIPTION_TOO_LARGE", "TOO_MANY_NODES" -> "فایل اشتراک از حد مجاز بزرگ‌تر است."
+                    "SUBSCRIPTION_HTTP_ERROR" -> "سرور اشتراک پاسخ موفق نداد. لینک را بررسی کنید."
+                    else -> "دریافت یا ذخیره اشتراک ناموفق بود. اینترنت، لینک و گواهی SSL را بررسی کنید."
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("موقعیت اتصال", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text("انتخاب موقعیت دلخواه", fontSize = 11.sp, color = colors.onSurfaceVariant)
-                }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(selectedCountry, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.primary)
-                    Text("پیش‌نمایش", fontSize = 10.sp, color = colors.onSurfaceVariant)
-                }
-                SaadegiIcon(AppIcon.Arrow, colors.onSurfaceVariant, size = 17.dp)
-            }
+            } finally { busy = false }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            MiniInfo(
-                Modifier.weight(1f),
-                AppIcon.Shield,
-                "اشتراک شما",
-                "پس از ورود",
-            )
-            MiniInfo(
-                Modifier.weight(1f),
-                AppIcon.Clock,
-                "وضعیت سرویس",
-                "در انتظار راه‌اندازی",
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SaadegiIcon(AppIcon.Shield, colors.onSurfaceVariant, size=16.dp)
-            Text(
-                "این نسخه فقط نمای ظاهری است؛ اتصال واقعی هنوز فعال نیست.",
-                fontSize = 11.sp,
-                color = colors.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
+    }
+    LaunchedEffect(Unit) {
+        try { snapshot = repo.load() }
+        catch (_: Exception) { error = "خواندن اشتراک ذخیره‌شده ممکن نشد. لینک را دوباره وارد کنید." }
+        finally { loading = false }
     }
 
-    if (countrySheetVisible) {
-        ModalBottomSheet(
-            onDismissRequest = { countrySheetVisible = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = colors.surface,
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(13.dp),
-            ) {
-                Text("انتخاب موقعیت", fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "موقعیت‌ها در این نسخه نمایشی‌اند و هنوز به سرورهای واقعی متصل نیستند.",
-                    color = colors.onSurfaceVariant, fontSize=12.sp,
-                )
-                countries.forEachIndexed { index, country ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { selectedCountry = country; countrySheetVisible = false }
-                            .padding(horizontal = 14.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SaadegiIcon(if(index == 0) AppIcon.Sparkles else AppIcon.Globe,
-                            if(selectedCountry == country) colors.primary else colors.onSurfaceVariant)
-                        Spacer(Modifier.width(13.dp))
-                        Text(country, Modifier.weight(1f), fontSize=14.sp, fontWeight = FontWeight.Medium)
-                        if(selectedCountry == country) SaadegiIcon(AppIcon.Check, colors.primary)
+    val nodes = snapshot?.parsed?.nodes.orEmpty()
+    val locations = nodes.map { it.location }.distinct()
+    val visible = nodes.filter { location == "همه سرورها" || it.location == location }
+    val selected = nodes.firstOrNull { it.id == nodeId }
+
+    LazyColumn(
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column(Modifier.padding(top = 8.dp, bottom = 5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("اتصال، به سادگی", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("مدیریت اشتراک بدون نیاز به ورود به حساب", color = palette.onSurfaceVariant, fontSize = 12.sp)
+            }
+        }
+        item { SubscriptionHero(nodes.size, selected) }
+        item {
+            Surface(color = palette.surface, shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.size(43.dp).background(palette.secondaryContainer, RoundedCornerShape(14.dp)),
+                            contentAlignment = Alignment.Center) {
+                            SaadegiIcon(AppIcon.Shield, palette.primary)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("سابسکریپشن من", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(snapshot?.sourceHost ?: "لینک اشتراک خود را اضافه کنید",
+                                fontSize = 11.sp, color = palette.onSurfaceVariant, maxLines = 1)
+                        }
+                        if (busy || loading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                     }
-                    if(index != countries.lastIndex) HorizontalDivider(color=colors.outlineVariant.copy(alpha=.55f))
+                    if (snapshot == null) {
+                        Button(
+                            modifier = Modifier.fillMaxWidth(), enabled = !busy && !loading,
+                            onClick = { link = ""; linkVisible = false; showImport = true },
+                        ) { Text("افزودن لینک سابسکریپشن") }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(modifier = Modifier.weight(1f), enabled = !busy,
+                                onClick = { runAction { repo.refresh() } }) { Text("به‌روزرسانی") }
+                            OutlinedButton(modifier = Modifier.weight(1f), enabled = !busy,
+                                onClick = { link = ""; linkVisible = false; showImport = true }) { Text("تغییر لینک") }
+                        }
+                        TextButton(onClick = { showDelete = true }, enabled = !busy) {
+                            Text("حذف اشتراک از دستگاه", color = palette.error, fontSize = 11.sp)
+                        }
+                    }
+                    error?.let { Text(it, color = palette.error, fontSize = 12.sp) }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ConnectionHero() {
-    val corner = RoundedCornerShape(30.dp)
-    Box(
-        modifier = Modifier.fillMaxWidth().clip(corner).background(
-            Brush.linearGradient(
-                listOf(Color(0xFF282726), Color(0xFF3A302B), Color(0xFF5A3B31)),
-            )
-        ),
-    ) {
-        Box(
-            modifier = Modifier.align(Alignment.TopStart).size(185.dp)
-                .background(
-                    Brush.radialGradient(
-                        listOf(Color(0x40F0A074), Color.Transparent),
-                    )
-                ),
-        )
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 17.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+        if (snapshot != null) {
+            item { SubscriptionUsageCard(snapshot!!) }
+            item {
+                Surface(
+                    color = palette.surface, shape = RoundedCornerShape(19.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { showLocations = true },
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SaadegiIcon(AppIcon.Globe, palette.primary)
+                        Column(Modifier.weight(1f)) {
+                            Text("موقعیت کانفیگ‌ها", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("استخراج‌شده از نام اینباند", color = palette.onSurfaceVariant, fontSize = 11.sp)
+                        }
+                        Text(location, fontSize = 12.sp, color = palette.primary)
+                        SaadegiIcon(AppIcon.Arrow, palette.onSurfaceVariant, size = 16.dp)
+                    }
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("سرورهای دریافتی", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("${visible.size} از ${nodes.size}", fontSize = 12.sp, color = palette.onSurfaceVariant)
+                }
+            }
+            items(visible, key = { it.id }) { node ->
+                ServerRow(node, nodeId == node.id) { nodeId = node.id }
+            }
+            item {
                 Text(
-                    "تحریم‌گذر سادگی",
-                    modifier=Modifier.weight(1f),
-                    color=Color(0xFFEDE7DE),
-                    fontSize=13.sp,
-                    fontWeight=FontWeight.Medium,
+                    "این سرورها از اشتراک شما خوانده شده‌اند؛ هنوز امکان اتصال VPN فعال نیست. " +
+                        "موقعیت صرفاً از نام کانفیگ استخراج می‌شود و موقعیت تأییدشده نیست.",
+                    fontSize = 11.sp, lineHeight = 17.sp, color = palette.onSurfaceVariant,
                 )
-                Row(
-                    modifier=Modifier.background(Color(0x26FFFFFF),RoundedCornerShape(50.dp))
-                        .padding(horizontal=10.dp, vertical=6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(6.dp).background(Color(0xFFF4BF91),CircleShape))
-                    Spacer(Modifier.width(6.dp))
-                    Text("پیش‌نمایش",fontSize=10.sp,color=Color(0xFFF4E3D6))
+            }
+        }
+    }
+
+    if (showImport) AlertDialog(
+        onDismissRequest = { showImport = false; link = "" },
+        title = { Text("افزودن لینک اشتراک") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("لینک HTTPS را وارد کنید؛ آدرس و کانفیگ‌ها در حافظه امن دستگاه ذخیره می‌شوند.",
+                    fontSize = 12.sp, color = palette.onSurfaceVariant)
+                OutlinedTextField(
+                    value = link, onValueChange = { link = it.take(2048) },
+                    label = { Text("لینک سابسکریپشن") }, singleLine = true,
+                    visualTransformation = if (linkVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = { linkVisible = !linkVisible }) {
+                    Text(if (linkVisible) "پنهان‌کردن" else "نمایش لینک")
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Box(
-                modifier=Modifier.size(124.dp)
-                    .border(1.dp,Color(0x3DFFEDE1),CircleShape)
-                    .padding(9.dp)
-                    .background(Brush.linearGradient(listOf(Color(0xFFF2D8C5),Color(0xFFE9B69A))),CircleShape),
-                contentAlignment=Alignment.Center,
-            ) {
-                Box(
-                    modifier=Modifier.size(82.dp)
-                        .background(Color(0xFFF7ECE5),CircleShape),
-                    contentAlignment=Alignment.Center,
-                ) {
-                    SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size=37.dp)
+        },
+        confirmButton = {
+            TextButton(enabled = link.isNotBlank() && !busy, onClick = {
+                val target = link.trim()
+                link = ""
+                showImport = false
+                runAction { repo.importSubscription(target) }
+            }) { Text("دریافت سرورها") }
+        },
+        dismissButton = { TextButton(onClick = { showImport = false; link = "" }) { Text("انصراف") } },
+    )
+
+    if (showDelete) AlertDialog(
+        onDismissRequest = { showDelete = false },
+        title = { Text("حذف اشتراک؟") },
+        text = { Text("لینک و تمام کانفیگ‌های ذخیره‌شده از این دستگاه پاک می‌شوند.") },
+        confirmButton = {
+            TextButton(onClick = {
+                showDelete = false
+                runAction { repo.delete(); nodeId = null; location = "همه سرورها"; null }
+            }) { Text("حذف", color = palette.error) }
+        },
+        dismissButton = { TextButton(onClick = { showDelete = false }) { Text("انصراف") } },
+    )
+
+    if (showLocations) ModalBottomSheet(
+        onDismissRequest = { showLocations = false },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.padding(horizontal = 22.dp, vertical = 12.dp)) {
+            Text("فیلتر موقعیت", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("بر اساس نام کانفیگ‌های واقعی", fontSize = 12.sp, color = palette.onSurfaceVariant)
+            (listOf("همه سرورها") + locations).forEach { option ->
+                Row(Modifier.fillMaxWidth().clickable { location = option; showLocations = false }
+                    .padding(vertical = 15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(option, Modifier.weight(1f), fontSize = 14.sp)
+                    if (option == location) SaadegiIcon(AppIcon.Check, palette.primary)
                 }
+                HorizontalDivider(color = palette.outlineVariant)
             }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                "اتصال به‌زودی فعال می‌شود",
-                color=Color.White, fontSize=19.sp, fontWeight=FontWeight.Bold,
-            )
-            Text(
-                "موتور VPN در حال پیاده‌سازی و آزمون است",
-                color=Color(0xFFE2CEC1), fontSize=11.sp, textAlign=TextAlign.Center,
-            )
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.size(15.dp))
         }
     }
 }
 
 @Composable
-private fun MiniInfo(
-    modifier: Modifier, icon: AppIcon, heading: String, value: String,
-) {
-    val c = MaterialTheme.colorScheme
-    Surface(modifier=modifier, shape=RoundedCornerShape(20.dp), color=c.surface, shadowElevation=1.dp) {
-        Column(Modifier.padding(horizontal=15.dp, vertical=13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
-            SaadegiIcon(icon,c.primary,size=19.dp)
-            Text(heading, color=c.onSurfaceVariant, fontSize=11.sp)
-            Text(value, color=c.onSurface, fontWeight=FontWeight.SemiBold, fontSize=12.sp,maxLines=1)
+private fun SubscriptionHero(count: Int, selected: SubscriptionNode?) {
+    Box(Modifier.fillMaxWidth().background(
+        Brush.linearGradient(listOf(Color(0xFF292624), Color(0xFF55392E))),
+        RoundedCornerShape(28.dp),
+    )) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text("تحریم‌گذر سادگی", Modifier.weight(1f), fontSize = 13.sp, color = Color(0xFFF8EEE6))
+                Text("نسخه آزمون", fontSize = 10.sp, color = Color(0xFFEDD1BD))
+            }
+            Box(Modifier.size(96.dp).background(Color(0xFFEED4C4), CircleShape),
+                contentAlignment = Alignment.Center) {
+                SaadegiIcon(AppIcon.Power, BrandColors.Terracotta, size = 43.dp)
+            }
+            Text(
+                if (count == 0) "یک اشتراک اضافه کنید"
+                else if (selected == null) "${count} کانفیگ دریافت شد"
+                else "سرور انتخاب شد",
+                color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+            )
+            Text(
+                selected?.title ?: "اتصال پس از فعال‌سازی موتور VPN امکان‌پذیر است",
+                color = Color(0xFFE8D2C4), fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2,
+            )
+            Text("VPN فعلاً غیرفعال است", fontSize = 11.sp, color = Color(0xFFFFC6A6))
+        }
+    }
+}
+
+@Composable
+private fun SubscriptionUsageCard(snapshot: SubscriptionSnapshot) {
+    val palette = MaterialTheme.colorScheme
+    val usage = snapshot.parsed.usage
+    Surface(color = palette.surface, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("اطلاعات اشتراک", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "آخرین به‌روزرسانی: " + DateFormat.getDateTimeInstance(
+                    DateFormat.SHORT, DateFormat.SHORT, Locale("fa")
+                ).format(Date(snapshot.parsed.updatedAtMillis)),
+                fontSize = 11.sp, color = palette.onSurfaceVariant,
+            )
+            if (usage == null) {
+                Text("سرور اطلاعات مصرف و انقضا ارائه نکرده است.",
+                    color = palette.onSurfaceVariant, fontSize = 12.sp)
+            } else {
+                Text(
+                    "مصرف: ${String.format(Locale.US, "%.2f", usage.usedBytes / 1073741824.0)} از " +
+                        "${String.format(Locale.US, "%.2f", usage.totalBytes / 1073741824.0)} گیگابایت",
+                    fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                )
+                Text("انقضا: " + (usage.expiresAtSeconds?.let {
+                    DateFormat.getDateInstance(DateFormat.MEDIUM, Locale("fa")).format(Date(it * 1000))
+                } ?: "اعلام نشده"), color = palette.onSurfaceVariant, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerRow(node: SubscriptionNode, selected: Boolean, onSelect: () -> Unit) {
+    val palette = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+        color = if (selected) palette.secondaryContainer else palette.surface,
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(Modifier.padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+            Box(Modifier.size(38.dp).background(palette.surfaceVariant, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center) {
+                SaadegiIcon(if (selected) AppIcon.Check else AppIcon.Globe, palette.primary)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(node.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2)
+                Text("${node.protocol} · ${node.transport} · ${node.location}",
+                    color = palette.onSurfaceVariant, fontSize = 11.sp)
+            }
+            if (!node.compatibleWithCurrentEngine) {
+                Text("موتور دیگر", color = palette.error, fontSize = 10.sp)
+            } else if (selected) {
+                Text("انتخاب‌شده", color = palette.primary, fontSize = 10.sp)
+            }
         }
     }
 }
