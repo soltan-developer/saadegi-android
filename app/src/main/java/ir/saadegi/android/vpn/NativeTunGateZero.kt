@@ -21,6 +21,7 @@ class NativeTunGateZero(private val owner: VpnService) {
     @Synchronized
     fun start(outbound: JSONObject): Boolean {
         if (interfaceFd != null || coreStarted) return false
+        VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TUN_PERMISSION)
         if (VpnService.prepare(owner) != null) return false
 
         val protector = object : DialerController {
@@ -31,6 +32,7 @@ class NativeTunGateZero(private val owner: VpnService) {
         try {
             // The address + default route is only safe when Xray is ready.
             // We tear down the fd immediately if any subsequent step fails.
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.TUN_ESTABLISH)
             tun = owner.Builder()
                 .setSession("سادگی — آزمایش داخلی")
                 .setMtu(NativeTunConfigFactory.TUN_MTU)
@@ -47,15 +49,20 @@ class NativeTunGateZero(private val owner: VpnService) {
             // through the Xray TUN outbound. DNS leak tests are mandatory.
             LibXray.setDNS(protector, "1.1.1.1:53")
             val config = NativeTunConfigFactory.create(tun.fd, outbound)
+            VpnDiagnosticLog.add(VpnDiagnosticLog.Step.XRAY_START)
             val started = invoke("runXray", JSONObject().put("xrayJson", config.toString()))
-            if (!started.optBoolean("success", false)) return false
+            if (!started.optBoolean("success", false)) {
+                VpnDiagnosticLog.add(VpnDiagnosticLog.Step.XRAY_REJECT)
+                return false
+            }
             coreStarted = true
             interfaceFd = tun
             tun = null
             // An Xray instance started != tunnel verified. An independent
             // routed HTTP/DNS probe is required before UI says "متصل".
             return true
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            VpnDiagnosticLog.add(VpnDiagnosticLog.classify(error))
             return false
         } finally {
             if (!coreStarted) {
