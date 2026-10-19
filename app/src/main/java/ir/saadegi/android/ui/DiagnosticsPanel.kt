@@ -53,6 +53,7 @@ fun DiagnosticsPanel(
     visibleNodes: List<SubscriptionNode>,
     selectedNodeId: String?,
     measurements: MutableMap<String, QualityResult>,
+    vpnActive: Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
     val engine = remember(repository) { XrayNativeDiagnostics(repository) }
@@ -70,7 +71,7 @@ fun DiagnosticsPanel(
     val targetNodes = visibleNodes.take(XrayNativeDiagnostics.MAX_NODES_PER_RUN)
 
     fun runLatency(mode: ProbeMode) {
-        if (running || targetNodes.isEmpty()) return
+        if (running || vpnActive || targetNodes.isEmpty()) return
         running = true
         error = null
         completed = 0
@@ -96,7 +97,7 @@ fun DiagnosticsPanel(
 
     fun runSpeed() {
         val node = selectedNodeId ?: return
-        if (running || !SpeedTestPolicy.canTest(
+        if (running || vpnActive || !SpeedTestPolicy.canTest(
                 node, measured[node], measuredAt[node], SystemClock.elapsedRealtime()
             )) return
         running = true
@@ -130,7 +131,7 @@ fun DiagnosticsPanel(
             )
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !running && targetNodes.isNotEmpty(),
+                enabled = !running && !vpnActive && targetNodes.isNotEmpty(),
                 onClick = { showModePicker = true },
             ) { Text("تست تأخیر سرورها  ▾", fontSize = 14.sp) }
             Text(
@@ -146,6 +147,8 @@ fun DiagnosticsPanel(
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("در حال آزمون… " + completed + " از " + targetNodes.size, fontSize = 12.sp)
             }
+            if (vpnActive) Text("برای آزمایش سایر کانفیگ‌ها ابتدا اتصال آزمایشی را قطع کنید.",
+                color = colors.onSurfaceVariant, fontSize = 11.sp)
             if (lastMode != null && measured.isNotEmpty()) {
                 val successful = measured.values.count { it.successes > 0 }
                 Text("نتیجه: " + successful + " سرور پاسخ‌گو · نمایش تأخیر در فهرست پایین",
