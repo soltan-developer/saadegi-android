@@ -48,10 +48,11 @@ jobs:
           count=$(unzip -Z1 "$apk" | grep "^lib/" | cut -d/ -f2 | sort -u | wc -l)
           test "$count" -eq 1
           unzip -Z1 "$apk" | grep -q "^lib/arm64-v8a/"
-      - name: Store non-VPN debug preview APK
+          echo "This is an INTERNAL native tunnel trial, not a production VPN release."
+      - name: Store arm64 internal VPN test APK
         uses: actions/upload-artifact@v4
         with:
-          name: saadegi-android-ui-preview
+          name: saadegi-android-arm64-internal
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
