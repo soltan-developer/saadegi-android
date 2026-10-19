@@ -102,8 +102,8 @@ class XrayNativeDiagnostics(private val repository: SubscriptionRepository) {
     suspend fun measure(
         profileIds: List<String>,
         mode: ProbeMode,
-        onProgress: suspend (QualityResult) -> Unit,
         endpoint: ProbeEndpoint = ProbeEndpoint.GOOGLE,
+        onProgress: suspend (QualityResult) -> Unit,
     ): List<QualityResult> = withContext(Dispatchers.IO) {
         require(profileIds.isNotEmpty() && profileIds.size <= MAX_NODES_PER_RUN) { "INVALID_TEST_SELECTION" }
         require(profileIds.distinct().size == profileIds.size) { "DUPLICATE_TEST_SELECTION" }
