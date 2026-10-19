@@ -25,6 +25,10 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
+            // Internal compact APK: obfuscation keeps generated libXray JNI interface.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // The debug build exercises native connection in a guarded lab mode.
             // Separate internal native-VPN test package: keep the existing preview untouched.
             applicationIdSuffix = ".lab"
@@ -37,6 +41,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging {
+        // Compress the Go native .so in APK, then extract at install. Download smaller,
+        // but installed footprint remains larger. Not a claim of lower runtime RAM.
+        jniLibs.useLegacyPackaging = true
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
