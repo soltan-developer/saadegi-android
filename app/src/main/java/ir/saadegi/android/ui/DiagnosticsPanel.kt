@@ -200,11 +200,11 @@ fun DiagnosticsPanel(
             Text("انتخاب روش سنجش", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text("هر تست، درخواست HTTP واقعی با URL پیش‌فرض v2rayNG ارسال می‌کند.",
                 color = colors.onSurfaceVariant, fontSize = 12.sp)
-            Button(Modifier.fillMaxWidth(), onClick = {
+            Button(modifier = Modifier.fillMaxWidth(), onClick = {
                 showModePicker = false
                 runLatency(ProbeMode.ONE_STEP)
             }) { Text("سنجش سریع · یک‌مرحله‌ای") }
-            OutlinedButton(Modifier.fillMaxWidth(), onClick = {
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
                 showModePicker = false
                 runLatency(ProbeMode.THREE_STEP)
             }) { Text("سنجش پایداری · سه‌مرحله‌ای") }
