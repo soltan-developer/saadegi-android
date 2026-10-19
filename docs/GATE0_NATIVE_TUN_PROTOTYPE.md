@@ -22,7 +22,7 @@ The service remains manifest-disabled and this helper is not invoked from the UI
 3. Check DNS, IPv6, UDP, device network lockdown, route and WebRTC leaks on two phones/operators.
 4. Use the exact profile from the encrypted subscription; handle VLESS Reality + XHTTP and any protocol admitted by core, no silent downgrades.
 5. After NativeXray is started, send a routed HTTP request and verify public exit address against known direct baseline. Only then switch the connection state to CONNECTED.
-6. Configure dedicated verified connected-network speed test. Existing diagnostics test uses temporary managed core and **must not run concurrently with active VPN**.
+6. A separate `ConnectedVpnSpeedProbe` scaffold now opens HTTPS through `Network.openConnection` on a verified VPN Network, with no second Xray instance or direct fallback. **It is not wired to the UI until a session can prove CONNECTED for its profile and identify the owning VPN Network**. Existing offline diagnostics uses a temporary managed core and must not run concurrently with active VPN.
 7. Load-test frequent connect/disconnect, cold launches, Android background restrictions and battery consumption. Rate-limit reconnect; tear down on errors.
 
 Official source:
