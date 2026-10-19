@@ -10,6 +10,10 @@ import java.util.Locale
 object VpnDiagnosticLog {
     enum class Step(val label: String) {
         READY("آماده آزمایش"), REQUEST("درخواست اتصال"), CONSENT("درخواست مجوز VPN"),
+        TEST_START("آزمون تأخیر از Xray شروع شد"),
+        TEST_ERROR("خطای درخواست تست داخل موتور Xray"),
+        TEST_NO_SUCCESS("هیچ آزمون HTTP موفقی ثبت نشد"),
+        TEST_COMPLETE("نتیجه آزمون تأخیر ثبت شد"),
         GRANTED("مجوز VPN داده شد"), DENIED("مجوز VPN رد شد"),
         SERVICE("سرویس اتصال آغاز شد"), INVALID_PROFILE("شناسه سرور نامعتبر"),
         FOREGROUND("اعلان سرویس فعال شد"), FOREGROUND_FAILED("سرویس پس‌زمینه مجاز نیست"),
